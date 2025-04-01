@@ -4,10 +4,18 @@ from .reminder import (
     get_reminders_tool,
     cancel_reminder_tool,
 )
+from .gmail import (
+    get_unread_emails_tool,
+    search_emails_tool,
+    initialize_gmail_auth,
+)
 
 __all__ = [
-    'DuckDuckGoSearchTool', 
-    'set_reminder_tool', 
-    'get_reminders_tool', 
+    'DuckDuckGoSearchTool',
+    'set_reminder_tool',
+    'get_reminders_tool',
     'cancel_reminder_tool',
+    'get_unread_emails_tool',
+    'search_emails_tool',
+    'initialize_gmail_auth',
 ]

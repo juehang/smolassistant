@@ -13,6 +13,16 @@ DEFAULTS = {
     "api_key": "",
     "reminders": {
         "db_path": "reminders.sqlite"
+    },
+    "gmail": {
+        "credentials_path": "credentials.json",
+        "token_path": "token.json"
+    },
+    "telegram": {
+        "enabled": False,
+        "token": "",
+        # ID of first user to interact with bot
+        "authorized_user_id": None
     }
 }
 
