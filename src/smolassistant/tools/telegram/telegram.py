@@ -17,7 +17,7 @@ def create_telegram_bot(message_queue, token, config, authorized_user_id=None):
             - bot: Configured TeleBot instance
             - callback_function: Function to send responses
     """
-    bot = telebot.TeleBot(token)
+    bot = telebot.TeleBot(token, parse_mode="html")
     
     # Track the authorized user ID
     _authorized_user_id = authorized_user_id

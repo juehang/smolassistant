@@ -11,12 +11,25 @@ DEFAULTS = {
     "model": "claude-3-5-haiku-latest",
     "max_context_length": 99999,
     "api_key": "",
+    "additional_instructions": (
+        "\nPlease use HTML to format your final answer. "
+        "Only the following HTML tags are supported: "
+        "<b>bold</b>, <i>italic</i>, <code>code</code>, "
+        "<pre language=\"c++\">code</pre>, <s>strike</s>, <u>underline</u>"
+        "Do not use any other HTML tags, such as <br>, <ul>, etc.\n\n"
+        "If given a natural language processing problem, such as summarization "
+        "or translation, please rely on your own capabilities and do not use coding "
+        "except for simple tasks such as counting words.\n"
+        "Before submitting your final answer, please review it for any "
+        "mistakes, and ensure that it is correct, complete, and "
+        "follows the instructions given."
+    ),
     "reminders": {
         "db_path": "reminders.sqlite"
     },
     "gmail": {
         "credentials_path": "credentials.json",
-        "token_path": "token.json"
+        "accounts": []
     },
     "telegram": {
         "enabled": False,
@@ -38,6 +51,9 @@ class ConfigManager:
                 tomli_w.dump(DEFAULTS, f)
         with open(config_file, "rb") as f:
             self.config = tomli.load(f)
+        
+        # Ensure all default values are present
+        self.ensure_defaults()
 
     def reload(self):
         with open(config_file, "rb") as f:
@@ -46,3 +62,35 @@ class ConfigManager:
     def save(self):
         with open(config_file, "wb") as f:
             tomli_w.dump(self.config, f)
+    
+    def ensure_defaults(self):
+        """
+        Ensure that all default configuration values are present in the current
+        configuration. If any are missing, add them, print to console, and save
+        the configuration.
+        """
+        changed = False
+        
+        def update_recursively(config, defaults, path=""):
+            nonlocal changed
+            
+            for key, default_value in defaults.items():
+                current_path = f"{path}.{key}" if path else key
+                
+                # If the key doesn't exist in the config, add it
+                if key not in config:
+                    config[key] = default_value
+                    print(f"Added missing configuration entry: {current_path}")
+                    changed = True
+                # If the value is a dictionary, recursively update it
+                elif (isinstance(default_value, dict) and
+                      isinstance(config[key], dict)):
+                    update_recursively(
+                        config[key], default_value, current_path
+                    )
+        
+        update_recursively(self.config, DEFAULTS)
+        
+        if changed:
+            self.save()
+            print("Configuration file updated with new default values")

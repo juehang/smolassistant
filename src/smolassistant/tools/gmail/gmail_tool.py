@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import base64
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from smolagents import tool
@@ -20,92 +21,237 @@ def calculate_date_range(days):
     return date.strftime("%Y/%m/%d")
 
 
-def format_email_results(service, messages):
+def format_email_results(services_with_messages):
     """
-    Format email results into a readable string.
+    Format email results from multiple accounts into a readable string.
     
     Args:
-        service: Gmail API service instance
-        messages: List of message objects from Gmail API
+        services_with_messages: List of tuples
+                               (service, messages, account_index)
         
     Returns:
         Formatted string with email details
     """
-    if not messages:
-        return "No emails found."
+    # Count total emails
+    total_emails = sum(
+        len(messages) for _, messages, _ in services_with_messages
+    )
     
-    result = f"Found {len(messages)} emails:\n\n"
+    if total_emails == 0:
+        return "No emails found in any account."
+    result = (
+        f"Found {total_emails} emails across "
+        f"{len(services_with_messages)} accounts:\n\n"
+    )
     
-    for i, msg in enumerate(messages[:10], 1):  # Limit to 10 emails
-        try:
-            # Get the message details
-            message = service.users().messages().get(
-                userId="me", id=msg["id"], format="metadata",
-                metadataHeaders=["Subject", "From", "Date"]
-            ).execute()
+    for service, messages, account_idx in services_with_messages:
+        if not messages:
+            continue
             
-            # Extract headers
-            headers = message.get("payload", {}).get("headers", [])
-            subject = next(
-                (h["value"] for h in headers if h["name"] == "Subject"),
-                "No subject"
-            )
-            sender = next(
-                (h["value"] for h in headers if h["name"] == "From"),
-                "Unknown sender"
-            )
-            date = next(
-                (h["value"] for h in headers if h["name"] == "Date"),
-                "Unknown date"
-            )
-            
-            # Add to result
-            result += f"{i}. Subject: {subject}\n"
-            result += f"   From: {sender}\n"
-            result += f"   Date: {date}\n"
-            result += f"   ID: {msg['id']}\n\n"
-        except HttpError as error:
-            result += f"{i}. Error retrieving email: {str(error)}\n\n"
-    
-    if len(messages) > 10:
-        result += f"... and {len(messages) - 10} more emails."
+        result += f"Account {account_idx + 1}:\n"
+        
+        for i, msg in enumerate(messages, 1):
+            try:
+                # Get the full message details
+                message = service.users().messages().get(
+                    userId="me", id=msg["id"], format="full"
+                ).execute()
+                
+                # Extract headers
+                headers = message.get("payload", {}).get("headers", [])
+                subject = next(
+                    (h["value"] for h in headers if h["name"] == "Subject"),
+                    "No subject"
+                )
+                sender = next(
+                    (h["value"] for h in headers if h["name"] == "From"),
+                    "Unknown sender"
+                )
+                date = next(
+                    (h["value"] for h in headers if h["name"] == "Date"),
+                    "Unknown date"
+                )
+                
+                # Extract message body
+                message_body = get_message_body(message)
+                
+                # Truncate message body if too long
+                max_body_length = 500
+                if len(message_body) > max_body_length:
+                    message_body = (message_body[:max_body_length] +
+                                    "... [truncated]")
+                
+                # Get attachments
+                attachments = get_attachments(message)
+                
+                # Add to result
+                result += f"  {i}. Subject: {subject}\n"
+                result += f"     From: {sender}\n"
+                result += f"     Date: {date}\n"
+                result += f"     ID: {msg['id']}\n"
+                
+                # Add message body
+                if message_body:
+                    formatted_body = message_body.replace('\n', '\n     ')
+                    result += f"\n     Message:\n     {formatted_body}\n"
+                
+                # Add attachments if any
+                if attachments:
+                    result += "\n     Attachments:\n"
+                    for attachment in attachments:
+                        result += f"     - {attachment}\n"
+                
+                result += "\n"
+                
+            except HttpError as error:
+                result += f"  {i}. Error retrieving email: {str(error)}\n\n"
     
     return result
 
 
+def get_message_body(message):
+    """
+    Extract the message body from a Gmail API message object.
+    
+    Args:
+        message: Gmail API message object
+        
+    Returns:
+        String containing the message body text
+    """
+    if not message:
+        return ""
+    
+    def decode_base64url(data):
+        """Decode base64url encoded string."""
+        if not data:
+            return ""
+        # Add padding if needed
+        padded = data + '=' * (4 - len(data) % 4) if len(data) % 4 else data
+        try:
+            return base64.urlsafe_b64decode(padded).decode('utf-8')
+        except Exception:
+            return "[Could not decode message]"
+    
+    def get_text_from_part(part):
+        """Recursively extract text from message part."""
+        if not part:
+            return ""
+            
+        # Check for body data in this part
+        if part.get("body") and part["body"].get("data"):
+            if part.get("mimeType") == "text/plain":
+                return decode_base64url(part["body"]["data"])
+            elif part.get("mimeType") == "text/html":
+                # Return HTML content (could convert to plain text if needed)
+                return decode_base64url(part["body"]["data"])
+        
+        # If this part has subparts, process them
+        if part.get("parts"):
+            # Prioritize text/plain parts over text/html
+            plain_text = ""
+            html_text = ""
+            
+            for subpart in part["parts"]:
+                if subpart.get("mimeType") == "text/plain":
+                    plain_text = get_text_from_part(subpart)
+                elif subpart.get("mimeType") == "text/html":
+                    html_text = get_text_from_part(subpart)
+                elif subpart.get("parts"):
+                    # Recursively check deeper parts
+                    subpart_text = get_text_from_part(subpart)
+                    if subpart_text:
+                        return subpart_text
+            
+            # Return plain text if available, otherwise HTML
+            return plain_text or html_text
+            
+        return ""
+    
+    # Start with the main payload
+    return get_text_from_part(message.get("payload", {}))
+
+
+def get_attachments(message):
+    """
+    Extract attachment filenames from a Gmail API message object.
+    
+    Args:
+        message: Gmail API message object
+        
+    Returns:
+        List of attachment filenames
+    """
+    attachments = []
+    
+    def find_attachments(part):
+        """Recursively find attachments in message parts."""
+        if not part:
+            return
+            
+        # Check if this part is an attachment
+        if part.get("filename") and part.get("filename").strip():
+            attachments.append(part.get("filename"))
+            
+        # Check subparts
+        if part.get("parts"):
+            for subpart in part["parts"]:
+                find_attachments(subpart)
+    
+    # Start with the main payload
+    if message and message.get("payload"):
+        find_attachments(message["payload"])
+        
+    return attachments
+
+
 def get_unread_emails_tool():
     """
-    Create a tool for getting unread emails.
+    Create a tool for getting unread emails from all accounts.
     """
     @tool
-    def get_unread_emails(days: int = 7) -> str:
+    def get_unread_emails(days: int = 2) -> str:
         """
-        Get unread emails from the last specified number of days.
+        Get unread emails from all accounts for the last specified
+        number of days.
         
         Args:
             days: Number of days to look back for unread emails (default: 7)
+
+        Returns:
+           A string containing the unread emails from all accounts.
         """
         try:
-            # Get credentials
-            creds = get_credentials()
+            # Get credentials for all accounts
+            all_creds = get_credentials()
             
-            # Build the Gmail API service
-            service = build("gmail", "v1", credentials=creds)
+            services_with_messages = []
             
-            # Calculate the date range
-            date_range = calculate_date_range(days)
-            
-            # Create the query
-            query = f"is:unread after:{date_range}"
-            
-            # Call the Gmail API
-            results = service.users().messages().list(
-                userId="me", q=query
-            ).execute()
-            messages = results.get("messages", [])
+            # Process each account
+            for idx, creds in enumerate(all_creds):
+                try:
+                    # Build the Gmail API service
+                    service = build("gmail", "v1", credentials=creds)
+                    
+                    # Calculate the date range
+                    date_range = calculate_date_range(days)
+                    
+                    # Create the query
+                    query = f"is:unread after:{date_range}"
+                    
+                    # Call the Gmail API
+                    results = service.users().messages().list(
+                        userId="me", q=query
+                    ).execute()
+                    messages = results.get("messages", [])
+                    
+                    # Add to the list
+                    services_with_messages.append((service, messages, idx))
+                except Exception as e:
+                    print(f"Error processing account {idx}: {str(e)}")
             
             # Format and return the results
-            return format_email_results(service, messages)
+            return format_email_results(services_with_messages)
         except Exception as e:
             if "authentication not set up" in str(e):
                 return (
@@ -119,32 +265,43 @@ def get_unread_emails_tool():
 
 def search_emails_tool():
     """
-    Create a tool for searching emails.
+    Create a tool for searching emails across all accounts.
     """
     @tool
     def search_emails(query: str, max_results: int = 10) -> str:
         """
-        Search emails using Gmail's search syntax.
+        Search emails using Gmail's search syntax across all accounts.
         
         Args:
             query: Search query using Gmail's search operators
-            max_results: Maximum number of results to return (default: 10)
+            max_results: Maximum number of results to return per account
+                        (default: 10)
         """
         try:
-            # Get credentials
-            creds = get_credentials()
+            # Get credentials for all accounts
+            all_creds = get_credentials()
             
-            # Build the Gmail API service
-            service = build("gmail", "v1", credentials=creds)
+            services_with_messages = []
             
-            # Call the Gmail API
-            results = service.users().messages().list(
-                userId="me", q=query, maxResults=max_results
-            ).execute()
-            messages = results.get("messages", [])
+            # Process each account
+            for idx, creds in enumerate(all_creds):
+                try:
+                    # Build the Gmail API service
+                    service = build("gmail", "v1", credentials=creds)
+                    
+                    # Call the Gmail API
+                    results = service.users().messages().list(
+                        userId="me", q=query, maxResults=max_results
+                    ).execute()
+                    messages = results.get("messages", [])
+                    
+                    # Add to the list
+                    services_with_messages.append((service, messages, idx))
+                except Exception as e:
+                    print(f"Error processing account {idx}: {str(e)}")
             
             # Format and return the results
-            return format_email_results(service, messages)
+            return format_email_results(services_with_messages)
         except Exception as e:
             if "authentication not set up" in str(e):
                 return (
