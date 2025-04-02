@@ -2,7 +2,9 @@ import os
 import queue
 
 from nicegui import run, ui
-from smolagents import CodeAgent, DuckDuckGoSearchTool, LiteLLMModel
+from smolagents import (
+    CodeAgent, DuckDuckGoSearchTool, LiteLLMModel, VisitWebpageTool,
+)
 # Removed unused imports since we're not displaying memory steps for now
 from .config import ConfigManager, config_dir
 from .tools.reminder import (
@@ -182,6 +184,7 @@ def main(config: ConfigManager):
 
     tools = [
         DuckDuckGoSearchTool(),
+        VisitWebpageTool(),
         set_reminder_tool(reminder_callback),
         get_reminders_tool(),
         cancel_reminder_tool(),
