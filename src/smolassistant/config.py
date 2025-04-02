@@ -44,5 +44,5 @@ class ConfigManager:
             self.config = tomli.load(f)
     
     def save(self):
-        with open(config_file, "w") as f:
+        with open(config_file, "wb") as f:
             tomli_w.dump(self.config, f)

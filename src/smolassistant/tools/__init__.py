@@ -9,6 +9,10 @@ from .gmail import (
     search_emails_tool,
     initialize_gmail_auth,
 )
+from .telegram import (
+    create_telegram_bot,
+    run_telegram_bot,
+)
 
 __all__ = [
     'DuckDuckGoSearchTool',
@@ -18,4 +22,6 @@ __all__ = [
     'get_unread_emails_tool',
     'search_emails_tool',
     'initialize_gmail_auth',
+    'create_telegram_bot',
+    'run_telegram_bot',
 ]

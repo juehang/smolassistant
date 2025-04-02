@@ -1,7 +1,7 @@
 import os
 import queue
 
-from nicegui import run, ui, app
+from nicegui import run, ui
 from smolagents import CodeAgent, DuckDuckGoSearchTool, LiteLLMModel
 # Removed unused imports since we're not displaying memory steps for now
 from .config import ConfigManager, config_dir
@@ -12,9 +12,21 @@ from .tools.reminder.service import ReminderService
 from .tools.gmail import (
     get_unread_emails_tool, search_emails_tool, initialize_gmail_auth
 )
+from .tools.telegram import (
+    create_telegram_bot, run_telegram_bot
+)
 
 
-async def process_message(message, agent, container):
+async def process_message(message, agent, container, telegram_cb=None):
+    """
+    Process a message through the agent and display the response.
+    
+    Args:
+        message: The message to process
+        agent: The agent to process the message
+        container: The UI container to display the message and response
+        telegram_cb: Optional callback to send the response to Telegram
+    """
     # Process the message and get the response
     # Display the user message in the chat container
     with container:
@@ -23,10 +35,24 @@ async def process_message(message, agent, container):
     # Display the response in the chat container
     with container:
         ui.chat_message(text=response, name='Assistant', sent=False)
+    
+    # If Telegram response callback is available, send the response there too
+    if telegram_cb:
+        telegram_cb(response)
+    
     return response
 
 
-async def process_queue(message_queue, agent, container):
+async def process_queue(message_queue, agent, container, telegram_cb=None):
+    """
+    Process all messages in the queue.
+    
+    Args:
+        message_queue: The queue containing messages to process
+        agent: The agent to process the messages
+        container: The UI container to display messages and responses
+        telegram_cb: Optional callback to send responses to Telegram
+    """
     # Check if there are messages in the queue
     if not message_queue.empty():
         # Process all messages in the queue
@@ -34,16 +60,29 @@ async def process_queue(message_queue, agent, container):
             # Get the next message from the queue
             message = message_queue.get()
             # Process the message
-            await process_message(message, agent, container)
+            await process_message(message, agent, container, telegram_cb)
 
 
-async def send_message(message_queue, message, agent, container):
+async def send_message(
+    message_queue, message, agent, container, telegram_cb=None
+):
+    """
+    Send a message to the agent via the queue.
+    
+    Args:
+        message_queue: The queue to add the message to
+        message: The message to send
+        agent: The agent to process the message
+        container: The UI container to display messages and responses
+        telegram_cb: Optional callback to send responses to Telegram
+    """
     message_queue.put(message)
-    await process_queue(message_queue, agent, container)
+    await process_queue(message_queue, agent, container, telegram_cb)
 
 
 # Setup Gmail auth function
 async def setup_gmail_auth():
+    """Initialize Gmail API authentication."""
     # Use run.io_bound to prevent blocking the UI
     result = await run.io_bound(initialize_gmail_auth)
     # Display result to user
@@ -91,10 +130,25 @@ def main(config: ConfigManager):
     # Check if Telegram is enabled
     telegram_enabled = config.config.get('telegram', {}).get('enabled', False)
     telegram_token = config.config.get('telegram', {}).get('token', '')
-    # import pdb; pdb.set_trace()
+    authorized_user_id = config.config.get('telegram', {}).get(
+        'authorized_user_id'
+    )
+    
     # Initialize and start Telegram bot if enabled
+    telegram_cb = None
     if telegram_enabled and telegram_token:
         print('Telegram bot is enabled.')
+        
+        # Create the bot with access to the message queue
+        bot, telegram_cb = create_telegram_bot(
+            message_queue=message_queue,
+            token=telegram_token,
+            config=config,
+            authorized_user_id=authorized_user_id
+        )
+        
+        # Start the bot in a background thread
+        run_telegram_bot(bot)
 
     # Create the UI with dark theme
     ui.dark_mode().enable()
@@ -121,24 +175,32 @@ def main(config: ConfigManager):
             input_field = ui.textarea(
                 placeholder='Type your message...'
             ).classes('w-full h-full bg-black text-white')
-    # Start the UI
-    ui.run(
-        title="SmolAssistant",
-        favicon="🤖",
-    )
 
     input_field.on(
         'keydown.enter',
         lambda: send_message(
-            message_queue, input_field.value, agent, chat_message_container
+            message_queue, input_field.value, agent, chat_message_container,
+            telegram_cb
         )
     )
 
     ui.timer(
         1.0,
-        lambda: process_queue(message_queue, agent, chat_message_container)
+        lambda: process_queue(
+            message_queue, agent, chat_message_container, telegram_cb
+        )
     )
 
+    # Start the UI
+    ui.run(
+        title="SmolAssistant",
+        favicon="🤖",
+        reload=False,
+    )
+    
+
+    
+    
 
 if __name__ in {"__main__", "__mp_main__", "smolassistant.__main__"}:
     try:
