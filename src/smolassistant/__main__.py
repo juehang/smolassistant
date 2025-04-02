@@ -196,8 +196,15 @@ def main(config: ConfigManager):
     agent = CodeAgent(
         tools=tools,
         model=model,
-        planning_interval=3
+        planning_interval=3,
     )
+    
+    # Add additional system prompt text if provided in config
+    if config.config.get('additional_system_prompt'):
+        agent.prompt_templates["system_prompt"] = (
+            agent.prompt_templates["system_prompt"] + 
+            "\n" + config.config['additional_system_prompt']
+        )
 
     # Check if Telegram is enabled
     telegram_enabled = config.config.get('telegram', {}).get('enabled', False)

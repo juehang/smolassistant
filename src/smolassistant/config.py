@@ -7,9 +7,7 @@ config_dir = os.path.join(xdg_config_home(), "smolassistant")
 config_file = os.path.join(config_dir, "config.toml")
 
 DEFAULTS = {
-    "provider": "anthropic",
-    "model": "claude-3-5-haiku-latest",
-    "max_context_length": 99999,
+    "model": "anthropic/claude-3-7-sonnet-latest",
     "api_key": "",
     "additional_instructions": (
         "\nPlease use HTML to format your final answer. "
@@ -24,6 +22,13 @@ DEFAULTS = {
         "mistakes, and ensure that it is correct, complete, and "
         "follows the instructions given."
     ),
+    "additional_system_prompt": (
+        "Please ensure that your responses via the final answer function "
+        "are friendly and helpful, and greet the user when appropriate!\n"
+        "If you are unsure about your answer, please include your confidence.\n"
+        "You do not know the current date or time; if you need this information, "
+        "please use your coding capabilities to find it.\n"
+    ),  # Custom text to add to the system prompt
     "reminders": {
         "db_path": "reminders.sqlite"
     },
