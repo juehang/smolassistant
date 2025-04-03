@@ -13,7 +13,7 @@ DEFAULTS = {
         "\nPlease use HTML to format your final answer. "
         "Only the following HTML tags are supported: "
         "<b>bold</b>, <i>italic</i>, <code>code</code>, "
-        "<pre language=\"c++\">code</pre>, <s>strike</s>, <u>underline</u>"
+        '<pre language="c++">code</pre>, <s>strike</s>, <u>underline</u>'
         "Do not use any other HTML tags, such as <br>, <ul>, etc.\n\n"
         "If given a natural language processing problem, "
         "such as summarization or translation, please rely on your own "
@@ -35,22 +35,15 @@ DEFAULTS = {
         "If you require additional context about earlier conversations, "
         "please use the message history tool to retrieve it.\n"
     ),  # Custom text to add to the system prompt
-    "reminders": {
-        "db_path": "reminders.sqlite"
-    },
-    "gmail": {
-        "credentials_path": "credentials.json",
-        "accounts": []
-    },
+    "reminders": {"db_path": "reminders.sqlite"},
+    "gmail": {"credentials_path": "credentials.json", "accounts": []},
     "telegram": {
         "enabled": False,
         "token": "",
         # ID of first user to interact with bot
-        "authorized_user_id": None
+        "authorized_user_id": None,
     },
-    "message_history": {
-        "max_size": 20
-    },
+    "message_history": {"max_size": 20},
     "text_processor": {
         "model": "anthropic/claude-3-haiku-20240307",
         "summary_prompt": (
@@ -59,7 +52,7 @@ DEFAULTS = {
             "For webpages, include main topics and key details. "
             "For attachments, mention types but not full filenames."
         ),
-    }
+    },
 }
 
 

@@ -2,30 +2,40 @@ import os
 import queue
 
 from nicegui import run, ui
-from smolagents import (
-    CodeAgent, DuckDuckGoSearchTool, LiteLLMModel
-)
+from smolagents import CodeAgent, DuckDuckGoSearchTool, LiteLLMModel
+
 # Removed unused imports since we're not displaying memory steps for now
 from .config import ConfigManager, config_dir
-from .tools.reminder import (
-    set_reminder_tool, set_recurring_reminder_tool, get_reminders_tool, cancel_reminder_tool
-)
-from .tools.reminder.service import ReminderService
 from .tools.gmail import (
-    get_unread_emails_tool, search_emails_tool, initialize_gmail_auth,
-    initialize_all_gmail_auth, add_gmail_account
+    add_gmail_account,
+    get_unread_emails_tool,
+    initialize_all_gmail_auth,
+    initialize_gmail_auth,
+    search_emails_tool,
+)
+from .tools.llm_text_processor import (
+    SummarizingVisitWebpageTool,
+    process_text_tool,
 )
 from .tools.message_history import MessageHistory, get_message_history_tool
-from .tools.llm_text_processor import (
-    process_text_tool, SummarizingVisitWebpageTool
+from .tools.reminder import (
+    cancel_reminder_tool,
+    get_reminders_tool,
+    set_recurring_reminder_tool,
+    set_reminder_tool,
 )
-from .tools.telegram import (
-    create_telegram_bot, run_telegram_bot
-)
+from .tools.reminder.service import ReminderService
+from .tools.telegram import create_telegram_bot, run_telegram_bot
+
 
 async def process_message(
-        message, agent, container, message_history, telegram_cb=None, additional_instructions=""
-        ):
+    message,
+    agent,
+    container,
+    message_history,
+    telegram_cb=None,
+    additional_instructions="",
+):
     """
     Process a message through the agent and display the response.
 
@@ -38,23 +48,24 @@ async def process_message(
     """
     # Add user message to history
     message_history.add_message("user", message)
-    
+
     # Process the message and get the response
     # Display the user message in the chat container
     with container:
         ui.chat_message(
             text=message,
-            name='You', sent=True,
-            )
+            name="You",
+            sent=True,
+        )
     response = await run.io_bound(
         agent.run, message + "\n" + additional_instructions, reset=True
-        )
+    )
     # Display the response in the chat container
     with container:
         ui.chat_message(
-            text=response, name='Assistant', sent=False, text_html=True
-            )
-    
+            text=response, name="Assistant", sent=False, text_html=True
+        )
+
     # Add assistant response to history
     message_history.add_message("assistant", response)
 
@@ -64,10 +75,15 @@ async def process_message(
 
     return response
 
+
 async def process_queue(
-        message_queue, agent, container, message_history, telegram_cb=None,
-        additional_instructions=""
-        ):
+    message_queue,
+    agent,
+    container,
+    message_history,
+    telegram_cb=None,
+    additional_instructions="",
+):
     """
     Process all messages in the queue.
 
@@ -86,15 +102,24 @@ async def process_queue(
             message = message_queue.get()
             # Process the message
             await process_message(
-                message, agent, container, message_history, telegram_cb,
-                additional_instructions=additional_instructions
-                )
+                message,
+                agent,
+                container,
+                message_history,
+                telegram_cb,
+                additional_instructions=additional_instructions,
+            )
 
 
 async def send_message(
-        message_queue, message, agent, container, message_history, telegram_cb=None,
-        additional_instructions=""
-        ):
+    message_queue,
+    message,
+    agent,
+    container,
+    message_history,
+    telegram_cb=None,
+    additional_instructions="",
+):
     """
     Send a message to the agent via the queue.
 
@@ -108,9 +133,13 @@ async def send_message(
     """
     message_queue.put(message)
     await process_queue(
-        message_queue, agent, container, message_history, telegram_cb,
-        additional_instructions=additional_instructions
-        )
+        message_queue,
+        agent,
+        container,
+        message_history,
+        telegram_cb,
+        additional_instructions=additional_instructions,
+    )
 
 
 # Setup Gmail auth functions
@@ -119,16 +148,16 @@ async def setup_gmail_auth():
     # Get the number of accounts
     config = ConfigManager().config
     accounts = config.config.get("gmail", {}).get("accounts", [])
-    
+
     # Notify user that authentication is starting
     ui.notify(
         f"Starting authentication for {len(accounts) + 1} Gmail accounts. "
         "Check the console for progress."
     )
-    
+
     # Use run.io_bound to prevent blocking the UI
     result = await run.io_bound(initialize_all_gmail_auth)
-    
+
     # Display result to user
     ui.notify(result)
 
@@ -139,7 +168,7 @@ async def setup_specific_gmail_auth(account_info):
         return
     print(account_info)
     account_name, token_path = account_info
-    
+
     # Use run.io_bound to prevent blocking the UI
     result = await run.io_bound(
         initialize_gmail_auth, account_name, token_path
@@ -154,22 +183,22 @@ async def add_new_gmail_account():
     with ui.dialog() as dialog, ui.card():
         ui.label("Add New Gmail Account")
         name_input = ui.input("Account Name")
-        
+
         async def submit():
             name = name_input.value
-            
+
             if not name:
                 ui.notify("Please enter an account name")
                 return
-            
+
             # Use run.io_bound to prevent blocking the UI
             result = await run.io_bound(add_gmail_account, name)
             ui.notify(result)
             dialog.close()
-        
+
         ui.button("Add", on_click=submit)
         ui.button("Cancel", on_click=dialog.close)
-    
+
     dialog.open()
 
 
@@ -180,25 +209,25 @@ def main(config: ConfigManager):
 
     # Initialize the message history with max size from config
     message_history = MessageHistory(
-        max_size=config.config.get('message_history', {}).get('max_size', 20)
+        max_size=config.config.get("message_history", {}).get("max_size", 20)
     )
 
     # Initialize ReminderService for thread management
     reminder_service = ReminderService(
         db_path=os.path.join(config_dir, "reminders.sqlite"),
-        reminder_queue=message_queue
+        reminder_queue=message_queue,
     )
     reminder_service.start()
 
     # Create the agent
     model = LiteLLMModel(
-        model_id=config.config['model'],
-        api_key=config.config['api_key'],
+        model_id=config.config["model"],
+        api_key=config.config["api_key"],
     )
 
     # Create a closure for summarize_text using the process_text_tool
     text_processor, summarize_text = process_text_tool(config)
-    
+
     # Initialize tools
     def reminder_callback(msg):
         message_queue.put(msg)
@@ -216,7 +245,7 @@ def main(config: ConfigManager):
         # Pass the summarize function to our email tools
         get_unread_emails_tool(summarize_func=summarize_text),
         search_emails_tool(summarize_func=summarize_text),
-        get_message_history_tool(message_history)
+        get_message_history_tool(message_history),
     ]
     # Create agent
     agent = CodeAgent(
@@ -224,32 +253,33 @@ def main(config: ConfigManager):
         model=model,
         planning_interval=3,
     )
-    
+
     # Add additional system prompt text if provided in config
-    if config.config.get('additional_system_prompt'):
+    if config.config.get("additional_system_prompt"):
         agent.prompt_templates["system_prompt"] = (
-            agent.prompt_templates["system_prompt"] + 
-            "\n" + config.config['additional_system_prompt']
+            agent.prompt_templates["system_prompt"]
+            + "\n"
+            + config.config["additional_system_prompt"]
         )
 
     # Check if Telegram is enabled
-    telegram_enabled = config.config.get('telegram', {}).get('enabled', False)
-    telegram_token = config.config.get('telegram', {}).get('token', '')
-    authorized_user_id = config.config.get('telegram', {}).get(
-        'authorized_user_id'
+    telegram_enabled = config.config.get("telegram", {}).get("enabled", False)
+    telegram_token = config.config.get("telegram", {}).get("token", "")
+    authorized_user_id = config.config.get("telegram", {}).get(
+        "authorized_user_id"
     )
 
     # Initialize and start Telegram bot if enabled
     telegram_cb = None
     if telegram_enabled and telegram_token:
-        print('Telegram bot is enabled.')
+        print("Telegram bot is enabled.")
 
         # Create the bot with access to the message queue
         bot, telegram_cb = create_telegram_bot(
             message_queue=message_queue,
             token=telegram_token,
             config=config,
-            authorized_user_id=authorized_user_id
+            authorized_user_id=authorized_user_id,
         )
 
         # Start the bot in a background thread
@@ -259,64 +289,72 @@ def main(config: ConfigManager):
     ui.dark_mode().enable()
 
     chat_container = ui.column().classes(
-        'grid grid-cols-3 grid-rows-5 w-full h-full'
+        "grid grid-cols-3 grid-rows-5 w-full h-full"
     )
     with chat_container:
         chat_message_container = ui.scroll_area().classes(
-            'bg-black border border-cyan-950 rounded-lg '
-            'col-start-2 min-h-[65vh]'
+            "bg-black border border-cyan-950 rounded-lg "
+            "col-start-2 min-h-[65vh]"
         )
 
         # Add Gmail API setup buttons
         with ui.card().classes(
-            'bg-black border border-cyan-950 rounded-lg col-start-1'
+            "bg-black border border-cyan-950 rounded-lg col-start-1"
         ):
-            ui.button('Setup All Gmail Accounts', on_click=setup_gmail_auth)
-            
+            ui.button("Setup All Gmail Accounts", on_click=setup_gmail_auth)
+
             # Create a dropdown for account selection
             accounts = config.config.get("gmail", {}).get("accounts", [])
             account_options = {}
-            
+
             for account in accounts:
                 name = account.get("name", "unnamed")
                 token_path = os.path.join(
                     config_dir, account.get("token_path")
                 )
                 account_options[(name, token_path)] = name
-            
+
             if account_options:
                 ui.select(
                     options=account_options,
-                    label='Select account to setup',
-                    on_change=lambda e: setup_specific_gmail_auth(e.value)
-                ).classes('w-64')
-            
+                    label="Select account to setup",
+                    on_change=lambda e: setup_specific_gmail_auth(e.value),
+                ).classes("w-64")
+
             # Add button to add a new account
-            ui.button('Add New Gmail Account', on_click=add_new_gmail_account)
+            ui.button("Add New Gmail Account", on_click=add_new_gmail_account)
 
         with ui.card().classes(
-            'bg-black border border-cyan-950 rounded-lg '
-            'col-start-2 min-h-[20vh]'
+            "bg-black border border-cyan-950 rounded-lg "
+            "col-start-2 min-h-[20vh]"
         ):
             input_field = ui.textarea(
-                placeholder='Type your message...'
-            ).classes('w-full h-full bg-black text-white')
+                placeholder="Type your message..."
+            ).classes("w-full h-full bg-black text-white")
 
     input_field.on(
-        'keydown.enter',
+        "keydown.enter",
         lambda: send_message(
-            message_queue, input_field.value, agent,
-            chat_message_container, message_history, telegram_cb,
-            additional_instructions=config.config['additional_instructions']
-        )
+            message_queue,
+            input_field.value,
+            agent,
+            chat_message_container,
+            message_history,
+            telegram_cb,
+            additional_instructions=config.config["additional_instructions"],
+        ),
     )
 
     ui.timer(
         1.0,
         lambda: process_queue(
-            message_queue, agent, chat_message_container, message_history, telegram_cb,
-            additional_instructions=config.config['additional_instructions']
-        )
+            message_queue,
+            agent,
+            chat_message_container,
+            message_history,
+            telegram_cb,
+            additional_instructions=config.config["additional_instructions"],
+        ),
     )
 
     # Start the UI
@@ -332,4 +370,4 @@ if __name__ in {"__main__", "__mp_main__", "smolassistant.__main__"}:
         config = ConfigManager()
         main(config)
     except Exception as e:
-        print(f"Fatal error: {str(e)}")
+        print(f"Fatal error: {e!s}")
