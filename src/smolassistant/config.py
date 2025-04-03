@@ -1,7 +1,8 @@
-from xdg_base_dirs import xdg_config_home
+import os
+
 import tomli
 import tomli_w
-import os
+from xdg_base_dirs import xdg_config_home
 
 config_dir = os.path.join(xdg_config_home(), "smolassistant")
 config_file = os.path.join(config_dir, "config.toml")
@@ -13,7 +14,7 @@ DEFAULTS = {
         "\nPlease use HTML to format your final answer. "
         "Only the following HTML tags are supported: "
         "<b>bold</b>, <i>italic</i>, <code>code</code>, "
-        '<pre language="c++">code</pre>, <s>strike</s>, <u>underline</u>'
+        '<pre language="python">code</pre>, <s>strike</s>, <u>underline</u>'
         "Do not use any other HTML tags, such as <br>, <ul>, etc.\n\n"
         "If given a natural language processing problem, "
         "such as summarization or translation, please rely on your own "
@@ -60,6 +61,7 @@ class ConfigManager:
     """
     Manages the configuration of the smolassistant.
     """
+
     def __init__(self):
         if not os.path.exists(config_file):
             os.makedirs(config_dir, exist_ok=True)
@@ -99,8 +101,9 @@ class ConfigManager:
                     print(f"Added missing configuration entry: {current_path}")
                     changed = True
                 # If the value is a dictionary, recursively update it
-                elif (isinstance(default_value, dict) and
-                      isinstance(config[key], dict)):
+                elif isinstance(default_value, dict) and isinstance(
+                    config[key], dict
+                ):
                     update_recursively(
                         config[key], default_value, current_path
                     )

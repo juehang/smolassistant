@@ -212,13 +212,19 @@ def main(config: ConfigManager):
         max_size=config.config.get("message_history", {}).get("max_size", 20)
     )
 
-    # Initialize ReminderService for thread management
+    # Get the database path from config
+    db_path = config.config.get("reminders", {}).get("db_path", "reminders.sqlite")
+
+    # If the path is not absolute, make it relative to the config directory
+    if not os.path.isabs(db_path):
+        db_path = os.path.join(config_dir, db_path)
+
+    # Initialize ReminderService for thread management and persistence
     reminder_service = ReminderService(
-        db_path=os.path.join(config_dir, "reminders.sqlite"),
+        db_path=db_path,
         reminder_queue=message_queue,
     )
     reminder_service.start()
-
     # Create the agent
     model = LiteLLMModel(
         model_id=config.config["model"],
@@ -238,10 +244,10 @@ def main(config: ConfigManager):
         SummarizingVisitWebpageTool(summarize_func=summarize_text),
         # Add our text processor tool
         text_processor,
-        set_reminder_tool(reminder_callback),
-        set_recurring_reminder_tool(reminder_callback),
-        get_reminders_tool(),
-        cancel_reminder_tool(),
+        set_reminder_tool(reminder_callback, reminder_service),
+        set_recurring_reminder_tool(reminder_callback, reminder_service),
+        get_reminders_tool(reminder_service),
+        cancel_reminder_tool(reminder_service),
         # Pass the summarize function to our email tools
         get_unread_emails_tool(summarize_func=summarize_text),
         search_emails_tool(summarize_func=summarize_text),

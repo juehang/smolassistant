@@ -1,11 +1,10 @@
 from datetime import datetime
-import uuid
 
 import schedule
 from smolagents import tool
 
 
-def set_reminder_tool(callback_fn):
+def set_reminder_tool(callback_fn, reminder_service):
     """
     Create a tool for setting one-time reminders.
     All reminders are routed to you, the agent, to handle.
@@ -14,6 +13,7 @@ def set_reminder_tool(callback_fn):
     
     Args:
         callback_fn: Function to call when a reminder is triggered
+        reminder_service: ReminderService instance for persistence
     """
     @tool
     def set_reminder(message: str, due_time: str) -> str:
@@ -36,41 +36,29 @@ def set_reminder_tool(callback_fn):
                 "'+' or '-' offset format."
             )
         
-        # Generate a unique ID for the reminder
-        reminder_id = f"reminder_{uuid.uuid4()}"
-        
-        # Define the job function
-        def reminder_job(message=None, reminder_id=None):
-            formatted_message = f"🔔 REMINDER: {message}"
-            callback_fn(formatted_message)
-            # Return CancelJob to remove the job after it runs
-            return schedule.CancelJob
-        
         # Calculate seconds until the reminder is due
         now = datetime.now()
-        if parsed_time > now:
-            # Schedule for future time
-            seconds_until_due = (parsed_time - now).total_seconds()
-            
-            # Schedule the job to run once after the calculated delay
-            # Tag it with 'reminder' and reminder_id for identification
-            job = schedule.every(seconds_until_due).seconds.do(
-                reminder_job,
-                message=message,
-                reminder_id=reminder_id
-            )
-            job.tag('reminder', reminder_id)
-        else:
+        if parsed_time <= now:
             # Due time has already passed, trigger immediately
             formatted_message = f"🔔 REMINDER: {message}"
             callback_fn(formatted_message)
+            return f"Reminder triggered immediately as the due time ({due_time}) has already passed."
+            
+        # Create the reminder through the service
+        reminder_id, _ = reminder_service.create_one_time_reminder(
+            message=message,
+            due_time=due_time
+        )
         
-        return f"One-time reminder set for {due_time}. (Reminder ID: {reminder_id})"
+        if reminder_id:
+            return f"One-time reminder set for {due_time}. (Reminder ID: {reminder_id})"
+        else:
+            return "Failed to set reminder. Please try again."
     
     return set_reminder
 
 
-def set_recurring_reminder_tool(callback_fn):
+def set_recurring_reminder_tool(callback_fn, reminder_service):
     """
     Create a tool for setting recurring reminders.
     All reminders are routed to you, the agent, to handle.
@@ -79,6 +67,7 @@ def set_recurring_reminder_tool(callback_fn):
     
     Args:
         callback_fn: Function to call when a reminder is triggered
+        reminder_service: ReminderService instance for persistence
     """
     @tool
     def set_recurring_reminder(message: str, interval: str, time_spec: str = "") -> str:
@@ -101,113 +90,18 @@ def set_recurring_reminder_tool(callback_fn):
                 - For "minute" interval: Use ":SS" format (e.g., ":30")
                 - For other intervals: Leave empty
         """
-        # Generate a unique ID for the reminder
-        reminder_id = f"recurring_{uuid.uuid4()}"
+        # Create the recurring reminder through the service
+        reminder_id, job = reminder_service.create_recurring_reminder(
+            message=message,
+            interval=interval,
+            time_spec=time_spec
+        )
         
-        # Define the job function
-        def reminder_job(message=None, reminder_id=None, interval=None, time_spec=None):
+        if reminder_id and job:
             if time_spec:
-                formatted_message = f"🔄 RECURRING REMINDER ({interval} at {time_spec}): {message}"
+                return f"Recurring reminder set ({interval} at {time_spec}). (Reminder ID: {reminder_id})"
             else:
-                formatted_message = f"🔄 RECURRING REMINDER ({interval}): {message}"
-            callback_fn(formatted_message)
-        
-        # Create mapped dictionaries for the schedule methods
-        interval_methods = {
-            # Basic intervals
-            "second": schedule.every().second,
-            "minute": schedule.every().minute,
-            "hour": schedule.every().hour,
-            "day": schedule.every().day,
-            
-            # Days of week
-            "monday": schedule.every().monday,
-            "tuesday": schedule.every().tuesday,
-            "wednesday": schedule.every().wednesday,
-            "thursday": schedule.every().thursday,
-            "friday": schedule.every().friday,
-            "saturday": schedule.every().saturday,
-            "sunday": schedule.every().sunday,
-        }
-        
-        job = None
-        display_interval = interval.lower()
-        
-        # Check for numbered intervals like "2 hours"
-        interval_parts = interval.lower().split()
-        if len(interval_parts) == 2 and interval_parts[0].isdigit():
-            count = int(interval_parts[0])
-            unit = interval_parts[1]
-            
-            # Handle plural forms by removing trailing 's'
-            if unit.endswith('s'):
-                unit = unit[:-1]
-            
-            # Map the unit to the correct schedule method
-            if unit == "second":
-                job = schedule.every(count).seconds.do(
-                    reminder_job,
-                    message=message,
-                    reminder_id=reminder_id,
-                    interval=display_interval,
-                    time_spec=time_spec
-                )
-            elif unit == "minute":
-                job = schedule.every(count).minutes.do(
-                    reminder_job,
-                    message=message,
-                    reminder_id=reminder_id,
-                    interval=display_interval,
-                    time_spec=time_spec
-                )
-            elif unit == "hour":
-                job = schedule.every(count).hours.do(
-                    reminder_job,
-                    message=message,
-                    reminder_id=reminder_id,
-                    interval=display_interval,
-                    time_spec=time_spec
-                )
-            elif unit == "day":
-                job = schedule.every(count).days.do(
-                    reminder_job,
-                    message=message,
-                    reminder_id=reminder_id,
-                    interval=display_interval,
-                    time_spec=time_spec
-                )
-        else:
-            # Handle standard intervals
-            method = interval_methods.get(interval.lower())
-            
-            if method:
-                if time_spec:
-                    # With time specification
-                    job = method.at(time_spec).do(
-                        reminder_job,
-                        message=message,
-                        reminder_id=reminder_id,
-                        interval=display_interval,
-                        time_spec=time_spec
-                    )
-                else:
-                    # Without time specification
-                    job = method.do(
-                        reminder_job,
-                        message=message,
-                        reminder_id=reminder_id,
-                        interval=display_interval,
-                        time_spec=time_spec
-                    )
-        
-        if job:
-            # Tag the job for identification and management
-            job.tag('recurring', reminder_id)
-            
-            if time_spec:
-                return f"Recurring reminder set ({display_interval} at {time_spec}). (Reminder ID: {reminder_id})"
-            else:
-                return f"Recurring reminder set ({display_interval}). (Reminder ID: {reminder_id})"
+                return f"Recurring reminder set ({interval}). (Reminder ID: {reminder_id})"
         else:
             return (
                 "Invalid interval or time specification. Please use one of the following formats:\n"
@@ -225,9 +119,12 @@ def set_recurring_reminder_tool(callback_fn):
     return set_recurring_reminder
 
 
-def get_reminders_tool():
+def get_reminders_tool(reminder_service):
     """
     Create a tool for getting pending reminders
+    
+    Args:
+        reminder_service: ReminderService instance for persistence
     """
     @tool
     def get_reminders() -> str:
@@ -311,9 +208,12 @@ def get_reminders_tool():
     return get_reminders
 
 
-def cancel_reminder_tool():
+def cancel_reminder_tool(reminder_service):
     """
     Create a tool for canceling reminders
+    
+    Args:
+        reminder_service: ReminderService instance for persistence
     """
     @tool
     def cancel_reminder(reminder_id: str) -> str:
@@ -342,21 +242,25 @@ def cancel_reminder_tool():
                     schedule_info = f"{interval} at {time_spec}"
                 else:
                     schedule_info = interval
-            
-            # Clear all jobs with this tag
-            schedule.clear(reminder_id)
-            
-            if is_recurring:
-                return (
-                    f"Recurring reminder '{message}' ({schedule_info}) "
-                    f"(ID: {reminder_id}) has been cancelled."
-                )
+                
+                # Delete from database and schedule
+                success = reminder_service.delete_recurring_reminder(reminder_id)
+                
+                if success:
+                    return (
+                        f"Recurring reminder '{message}' ({schedule_info}) "
+                        f"(ID: {reminder_id}) has been cancelled."
+                    )
             else:
-                return (
-                    f"One-time reminder '{message}' (ID: {reminder_id}) "
-                    f"has been cancelled."
-                )
-        else:
-            return f"Could not find reminder with ID {reminder_id}."
+                # Delete from database and schedule
+                success = reminder_service.delete_one_time_reminder(reminder_id)
+                
+                if success:
+                    return (
+                        f"One-time reminder '{message}' (ID: {reminder_id}) "
+                        f"has been cancelled."
+                    )
+        
+        return f"Could not find reminder with ID {reminder_id}."
     
     return cancel_reminder
