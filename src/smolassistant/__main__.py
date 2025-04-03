@@ -37,14 +37,16 @@ async def process_message(
     with container:
         ui.chat_message(
             text=message,
-            name='You', sent=True
+            name='You', sent=True,
             )
     response = await run.io_bound(
         agent.run, message + "\n" + additional_instructions, reset=False
         )
     # Display the response in the chat container
     with container:
-        ui.chat_message(text=response, name='Assistant', sent=False)
+        ui.chat_message(
+            text=response, name='Assistant', sent=False, text_html=True
+            )
 
     # If Telegram response callback is available, send the response there too
     if telegram_cb:

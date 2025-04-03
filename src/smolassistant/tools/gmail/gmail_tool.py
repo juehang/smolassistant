@@ -216,7 +216,7 @@ def get_unread_emails_tool():
         number of days.
         
         Args:
-            days: Number of days to look back for unread emails (default: 7)
+            days: Number of days to look back for unread emails (default: 2)
 
         Returns:
            A string containing the unread emails from all accounts.
