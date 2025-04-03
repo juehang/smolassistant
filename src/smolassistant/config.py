@@ -15,8 +15,9 @@ DEFAULTS = {
         "<b>bold</b>, <i>italic</i>, <code>code</code>, "
         "<pre language=\"c++\">code</pre>, <s>strike</s>, <u>underline</u>"
         "Do not use any other HTML tags, such as <br>, <ul>, etc.\n\n"
-        "If given a natural language processing problem, such as summarization "
-        "or translation, please rely on your own capabilities and do not use coding "
+        "If given a natural language processing problem, "
+        "such as summarization or translation, please rely on your own "
+        "capabilities and do not use coding "
         "except for simple tasks such as counting words.\n"
         "Before submitting your final answer, please review it for any "
         "mistakes, and ensure that it is correct, complete, and "
@@ -25,8 +26,9 @@ DEFAULTS = {
     "additional_system_prompt": (
         "Please ensure that your responses via the final answer function "
         "are friendly and helpful, and greet the user when appropriate!\n"
-        "If you are unsure about your answer, please include your confidence.\n"
-        "You do not know the current date or time; if you need this information, "
+        "If you are unsure about your answer, please include your "
+        "confidence.\nYou do not know the current date or time; "
+        "if you need this information, "
         "please use your coding capabilities to find it.\n"
     ),  # Custom text to add to the system prompt
     "reminders": {
@@ -56,18 +58,18 @@ class ConfigManager:
                 tomli_w.dump(DEFAULTS, f)
         with open(config_file, "rb") as f:
             self.config = tomli.load(f)
-        
+
         # Ensure all default values are present
         self.ensure_defaults()
 
     def reload(self):
         with open(config_file, "rb") as f:
             self.config = tomli.load(f)
-    
+
     def save(self):
         with open(config_file, "wb") as f:
             tomli_w.dump(self.config, f)
-    
+
     def ensure_defaults(self):
         """
         Ensure that all default configuration values are present in the current
@@ -75,13 +77,13 @@ class ConfigManager:
         the configuration.
         """
         changed = False
-        
+
         def update_recursively(config, defaults, path=""):
             nonlocal changed
-            
+
             for key, default_value in defaults.items():
                 current_path = f"{path}.{key}" if path else key
-                
+
                 # If the key doesn't exist in the config, add it
                 if key not in config:
                     config[key] = default_value
@@ -93,9 +95,9 @@ class ConfigManager:
                     update_recursively(
                         config[key], default_value, current_path
                     )
-        
+
         update_recursively(self.config, DEFAULTS)
-        
+
         if changed:
             self.save()
             print("Configuration file updated with new default values")
