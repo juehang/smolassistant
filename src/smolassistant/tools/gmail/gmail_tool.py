@@ -3,6 +3,7 @@ import base64
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from smolagents import tool
+from typing import Optional, Callable
 
 from .auth import get_credentials
 
@@ -205,18 +206,23 @@ def get_attachments(message):
     return attachments
 
 
-def get_unread_emails_tool():
+def get_unread_emails_tool(summarize_func: Optional[Callable] = None):
     """
     Create a tool for getting unread emails from all accounts.
+    
+    Args:
+        summarize_func: Optional function to summarize text
     """
     @tool
-    def get_unread_emails(days: int = 2) -> str:
+    def get_unread_emails(days: int = 2, summarize: bool = True) -> str:
         """
         Get unread emails from all accounts for the last specified
         number of days.
+        Do not disable summarization unless you have a good reason to do so.
         
         Args:
             days: Number of days to look back for unread emails (default: 2)
+            summarize: Whether to summarize the results (default: True)
 
         Returns:
            A string containing the unread emails from all accounts.
@@ -250,8 +256,18 @@ def get_unread_emails_tool():
                 except Exception as e:
                     print(f"Error processing account {idx}: {str(e)}")
             
-            # Format and return the results
-            return format_email_results(services_with_messages)
+            # Format the results
+            result = format_email_results(services_with_messages)
+            
+            # Summarize if requested and summarize_func is available
+            if summarize and summarize_func:
+                try:
+                    result = summarize_func(result)
+                except Exception as e:
+                    # Add a note about summarization failure but return the original
+                    result = f"Note: Summarization failed ({str(e)})\n\n{result}"
+                
+            return result
         except Exception as e:
             if "authentication not set up" in str(e):
                 return (
@@ -263,19 +279,23 @@ def get_unread_emails_tool():
     return get_unread_emails
 
 
-def search_emails_tool():
+def search_emails_tool(summarize_func: Optional[Callable] = None):
     """
     Create a tool for searching emails across all accounts.
+    Do not disable summarization unless you have a good reason to do so.
+    
+    Args:
+        summarize_func: Optional function to summarize text
     """
     @tool
-    def search_emails(query: str, max_results: int = 10) -> str:
+    def search_emails(query: str, max_results: int = 10, summarize: bool = True) -> str:
         """
         Search emails using Gmail's search syntax across all accounts.
         
         Args:
             query: Search query using Gmail's search operators
-            max_results: Maximum number of results to return per account
-                        (default: 10)
+            max_results: Maximum number of results to return per account (default: 10)
+            summarize: Whether to summarize the results (default: True)
         """
         try:
             # Get credentials for all accounts
@@ -300,8 +320,18 @@ def search_emails_tool():
                 except Exception as e:
                     print(f"Error processing account {idx}: {str(e)}")
             
-            # Format and return the results
-            return format_email_results(services_with_messages)
+            # Format the results
+            result = format_email_results(services_with_messages)
+            
+            # Summarize if requested and summarize_func is available
+            if summarize and summarize_func:
+                try:
+                    result = summarize_func(result)
+                except Exception as e:
+                    # Add a note about summarization failure but return the original
+                    result = f"Note: Summarization failed ({str(e)})\n\n{result}"
+                
+            return result
         except Exception as e:
             if "authentication not set up" in str(e):
                 return (

@@ -17,8 +17,10 @@ DEFAULTS = {
         "Do not use any other HTML tags, such as <br>, <ul>, etc.\n\n"
         "If given a natural language processing problem, "
         "such as summarization or translation, please rely on your own "
-        "capabilities and do not use coding "
-        "except for simple tasks such as counting words.\n"
+        "capabilities or the text processing tool, and do not use coding "
+        "except for basic tasks such as counting words.\n"
+        "For tools that support summarization (email tools and webpage visits), "
+        "summarization is enabled by default. Use it to make long content more digestible.\n"
         "Before submitting your final answer, please review it for any "
         "mistakes, and ensure that it is correct, complete, and "
         "follows the instructions given.\n"
@@ -48,6 +50,15 @@ DEFAULTS = {
     },
     "message_history": {
         "max_size": 20
+    },
+    "text_processor": {
+        "model": "anthropic/claude-3-haiku-20240307",
+        "summary_prompt": (
+            "Summarize the following text. Preserve key information "
+            "while being concise. For emails, include sender, subject, and main points. "
+            "For webpages, include main topics and key details. "
+            "For attachments, mention types but not full filenames."
+        ),
     }
 }
 

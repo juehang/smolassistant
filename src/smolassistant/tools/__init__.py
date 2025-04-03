@@ -14,6 +14,10 @@ from .telegram import (
     create_telegram_bot,
     run_telegram_bot,
 )
+from .llm_text_processor import (
+    process_text_tool,
+    SummarizingVisitWebpageTool,
+)
 
 __all__ = [
     'DuckDuckGoSearchTool',
@@ -26,4 +30,6 @@ __all__ = [
     'initialize_gmail_auth',
     'create_telegram_bot',
     'run_telegram_bot',
+    'process_text_tool',
+    'SummarizingVisitWebpageTool',
 ]

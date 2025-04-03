@@ -3,7 +3,7 @@ import queue
 
 from nicegui import run, ui
 from smolagents import (
-    CodeAgent, DuckDuckGoSearchTool, LiteLLMModel, VisitWebpageTool,
+    CodeAgent, DuckDuckGoSearchTool, LiteLLMModel
 )
 # Removed unused imports since we're not displaying memory steps for now
 from .config import ConfigManager, config_dir
@@ -16,6 +16,8 @@ from .tools.gmail import (
     initialize_all_gmail_auth, add_gmail_account
 )
 from .tools.message_history import MessageHistory, get_message_history_tool
+from .tools.llm_text_processor import (
+    process_text_tool, SummarizingVisitWebpageTool
 )
 from .tools.telegram import (
     create_telegram_bot, run_telegram_bot
@@ -194,19 +196,26 @@ def main(config: ConfigManager):
         api_key=config.config['api_key'],
     )
 
+    # Create a closure for summarize_text using the process_text_tool
+    text_processor, summarize_text = process_text_tool(config)
+    
     # Initialize tools
     def reminder_callback(msg):
         message_queue.put(msg)
 
     tools = [
         DuckDuckGoSearchTool(),
-        VisitWebpageTool(),
+        # Replace VisitWebpageTool with our summarizing version
+        SummarizingVisitWebpageTool(summarize_func=summarize_text),
+        # Add our text processor tool
+        text_processor,
         set_reminder_tool(reminder_callback),
         set_recurring_reminder_tool(reminder_callback),
         get_reminders_tool(),
         cancel_reminder_tool(),
-        get_unread_emails_tool(),
-        search_emails_tool(),
+        # Pass the summarize function to our email tools
+        get_unread_emails_tool(summarize_func=summarize_text),
+        search_emails_tool(summarize_func=summarize_text),
         get_message_history_tool(message_history)
     ]
     # Create agent
