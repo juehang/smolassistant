@@ -7,7 +7,7 @@ An agentic AI assistant based on the smolagents library.
 - Interactive chat interface with a powerful AI assistant
 - Built on smolagents, supporting Python code execution
 - Web search capabilities
-- Reminder functionality
+- Reminder functionality (one-time and recurring)
 - Gmail integration
 - Telegram bot support
 
@@ -54,3 +54,14 @@ Always provide examples when explaining concepts.
 ```
 
 These instructions will be appended to the default system prompt used by the agent, giving you control over the assistant's behavior without modifying the codebase.
+
+## Reminder Functionality
+
+SmolAssistant supports both one-time and recurring reminders. You can ask the assistant to:
+
+- Set reminders for specific dates and times
+- Create recurring reminders (daily, weekly, or at custom intervals)
+- List all your pending reminders
+- Cancel reminders when they're no longer needed
+
+The assistant understands natural language requests for managing your reminders.
