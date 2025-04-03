@@ -15,13 +15,14 @@ from .tools.gmail import (
     get_unread_emails_tool, search_emails_tool, initialize_gmail_auth,
     initialize_all_gmail_auth, add_gmail_account
 )
+from .tools.message_history import MessageHistory, get_message_history_tool
+)
 from .tools.telegram import (
     create_telegram_bot, run_telegram_bot
 )
 
-
 async def process_message(
-        message, agent, container, telegram_cb=None, additional_instructions=""
+        message, agent, container, message_history, telegram_cb=None, additional_instructions=""
         ):
     """
     Process a message through the agent and display the response.
@@ -30,8 +31,12 @@ async def process_message(
         message: The message to process
         agent: The agent to process the message
         container: The UI container to display the message and response
+        message_history: The MessageHistory instance to store messages
         telegram_cb: Optional callback to send the response to Telegram
     """
+    # Add user message to history
+    message_history.add_message("user", message)
+    
     # Process the message and get the response
     # Display the user message in the chat container
     with container:
@@ -40,13 +45,16 @@ async def process_message(
             name='You', sent=True,
             )
     response = await run.io_bound(
-        agent.run, message + "\n" + additional_instructions, reset=False
+        agent.run, message + "\n" + additional_instructions, reset=True
         )
     # Display the response in the chat container
     with container:
         ui.chat_message(
             text=response, name='Assistant', sent=False, text_html=True
             )
+    
+    # Add assistant response to history
+    message_history.add_message("assistant", response)
 
     # If Telegram response callback is available, send the response there too
     if telegram_cb:
@@ -54,9 +62,8 @@ async def process_message(
 
     return response
 
-
 async def process_queue(
-        message_queue, agent, container, telegram_cb=None,
+        message_queue, agent, container, message_history, telegram_cb=None,
         additional_instructions=""
         ):
     """
@@ -66,6 +73,7 @@ async def process_queue(
         message_queue: The queue containing messages to process
         agent: The agent to process the messages
         container: The UI container to display messages and responses
+        message_history: The MessageHistory instance to store messages
         telegram_cb: Optional callback to send responses to Telegram
     """
     # Check if there are messages in the queue
@@ -76,13 +84,13 @@ async def process_queue(
             message = message_queue.get()
             # Process the message
             await process_message(
-                message, agent, container, telegram_cb,
+                message, agent, container, message_history, telegram_cb,
                 additional_instructions=additional_instructions
                 )
 
 
 async def send_message(
-        message_queue, message, agent, container, telegram_cb=None,
+        message_queue, message, agent, container, message_history, telegram_cb=None,
         additional_instructions=""
         ):
     """
@@ -93,11 +101,12 @@ async def send_message(
         message: The message to send
         agent: The agent to process the message
         container: The UI container to display messages and responses
+        message_history: The MessageHistory instance to store messages
         telegram_cb: Optional callback to send responses to Telegram
     """
     message_queue.put(message)
     await process_queue(
-        message_queue, agent, container, telegram_cb,
+        message_queue, agent, container, message_history, telegram_cb,
         additional_instructions=additional_instructions
         )
 
@@ -167,6 +176,11 @@ def main(config: ConfigManager):
     # Create a queue for all messages (both user input and reminders)
     message_queue = queue.Queue()
 
+    # Initialize the message history with max size from config
+    message_history = MessageHistory(
+        max_size=config.config.get('message_history', {}).get('max_size', 20)
+    )
+
     # Initialize ReminderService for thread management
     reminder_service = ReminderService(
         db_path=os.path.join(config_dir, "reminders.sqlite"),
@@ -192,9 +206,9 @@ def main(config: ConfigManager):
         get_reminders_tool(),
         cancel_reminder_tool(),
         get_unread_emails_tool(),
-        search_emails_tool()
+        search_emails_tool(),
+        get_message_history_tool(message_history)
     ]
-
     # Create agent
     agent = CodeAgent(
         tools=tools,
@@ -283,7 +297,7 @@ def main(config: ConfigManager):
         'keydown.enter',
         lambda: send_message(
             message_queue, input_field.value, agent,
-            chat_message_container, telegram_cb,
+            chat_message_container, message_history, telegram_cb,
             additional_instructions=config.config['additional_instructions']
         )
     )
@@ -291,7 +305,7 @@ def main(config: ConfigManager):
     ui.timer(
         1.0,
         lambda: process_queue(
-            message_queue, agent, chat_message_container, telegram_cb,
+            message_queue, agent, chat_message_container, message_history, telegram_cb,
             additional_instructions=config.config['additional_instructions']
         )
     )

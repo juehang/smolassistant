@@ -21,15 +21,17 @@ DEFAULTS = {
         "except for simple tasks such as counting words.\n"
         "Before submitting your final answer, please review it for any "
         "mistakes, and ensure that it is correct, complete, and "
-        "follows the instructions given."
+        "follows the instructions given.\n"
     ),
     "additional_system_prompt": (
-        "Please ensure that your responses via the final answer function "
+        "\nPlease ensure that your responses via the final answer function "
         "are friendly and helpful, and greet the user when appropriate!\n"
         "If you are unsure about your answer, please include your "
         "confidence.\nYou do not know the current date or time; "
         "if you need this information, "
         "please use your coding capabilities to find it.\n"
+        "If you require additional context about earlier conversations, "
+        "please use the message history tool to retrieve it.\n"
     ),  # Custom text to add to the system prompt
     "reminders": {
         "db_path": "reminders.sqlite"
@@ -43,6 +45,9 @@ DEFAULTS = {
         "token": "",
         # ID of first user to interact with bot
         "authorized_user_id": None
+    },
+    "message_history": {
+        "max_size": 20
     }
 }
 
