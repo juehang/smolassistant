@@ -8,7 +8,7 @@ from smolagents import (
 # Removed unused imports since we're not displaying memory steps for now
 from .config import ConfigManager, config_dir
 from .tools.reminder import (
-    set_reminder_tool, get_reminders_tool, cancel_reminder_tool
+    set_reminder_tool, set_recurring_reminder_tool, get_reminders_tool, cancel_reminder_tool
 )
 from .tools.reminder.service import ReminderService
 from .tools.gmail import (
@@ -188,6 +188,7 @@ def main(config: ConfigManager):
         DuckDuckGoSearchTool(),
         VisitWebpageTool(),
         set_reminder_tool(reminder_callback),
+        set_recurring_reminder_tool(reminder_callback),
         get_reminders_tool(),
         cancel_reminder_tool(),
         get_unread_emails_tool(),
