@@ -1,6 +1,7 @@
 import os
 import queue
 import re
+from datetime import datetime
 
 from nicegui import run, ui
 from smolagents import CodeAgent, DuckDuckGoSearchTool, LiteLLMModel
@@ -43,6 +44,11 @@ def format_message_for_ui(message):
     return message.replace('\n', '<br>')
 
 
+def get_current_time():
+    """Get formatted current time for message timestamps."""
+    return datetime.now().strftime("%H:%M")
+
+
 async def process_message(
     message,
     agent,
@@ -64,14 +70,15 @@ async def process_message(
     # Add user message to history
     message_history.add_message("user", message)
 
-    # Process the message and get the response
-    # Display the user message in the chat container
+    # Custom styled user message
     with container:
-        ui.chat_message(
-            text=message,
-            name="You",
-            sent=True,
-        )
+        with ui.element("div").classes("flex justify-end q-mb-md"):
+            with ui.card().props('flat bordered').classes("q-pa-sm bg-primary-2"):
+                ui.label("You").classes("text-subtitle2 text-weight-medium text-primary")
+                ui.label(message).classes("text-body1")
+                ui.label(get_current_time()).classes("text-caption text-weight-light text-grey-6 text-right")
+    
+    # Process the message
     response = await run.io_bound(
         agent.run, message + "\n" + additional_instructions, reset=True,
     )
@@ -79,11 +86,13 @@ async def process_message(
     # Format the response for UI display (convert newlines to <br>)
     ui_response = format_message_for_ui(response)
     
-    # Display the response in the chat container
+    # Custom styled assistant message
     with container:
-        ui.chat_message(
-            text=ui_response, name="Assistant", sent=False, text_html=True,
-        )
+        with ui.element("div").classes("flex justify-start q-mb-md"):
+            with ui.card().props('flat bordered').classes("q-pa-sm bg-dark"):
+                ui.label("Assistant").classes("text-subtitle2 text-weight-medium text-secondary")
+                ui.html(ui_response).classes("text-body1")
+                ui.label(get_current_time()).classes("text-caption text-weight-light text-grey-6 text-right")
 
     # Add assistant response to history (original format)
     message_history.add_message("assistant", response)
@@ -215,8 +224,9 @@ async def add_new_gmail_account():
     """Add a new Gmail account to the configuration."""
     # Create a dialog to get account details
     with ui.dialog() as dialog, ui.card():
-        ui.label("Add New Gmail Account").classes("text-h6 q-mb-md")
-        name_input = ui.input("Account Name")
+        ui.label("Add New Gmail Account").classes("text-h5 text-weight-medium text-primary q-mb-md")
+        ui.label("Enter account details").classes("text-body2 text-weight-regular q-mb-md")
+        name_input = ui.input("Account Name").props('outlined filled')
 
         async def submit():
             name = name_input.value
@@ -235,8 +245,8 @@ async def add_new_gmail_account():
             dialog.close()
 
         with ui.row().classes("justify-end q-mt-md"):
-            ui.button("Cancel", on_click=dialog.close)
-            ui.button("Add", on_click=submit).props('color=positive')
+            ui.button("Cancel", on_click=dialog.close).classes("text-button")
+            ui.button("Add", on_click=submit).props('color=positive').classes("text-button")
 
     dialog.open()
 
@@ -335,21 +345,44 @@ def main(config: ConfigManager):
     # Create the UI with dark theme
     ui.dark_mode().enable()
 
+    # Add custom CSS for styling consistency
+    ui.add_head_html("""
+    <style>
+    :root {
+        --background-dark: #121212;
+        --card-dark: #1E1E1E;
+        --primary-color: #1976D2;
+        --secondary-color: #26A69A;
+        --accent-color: #9C27B0;
+    }
+    .scroll-area-with-thumb::-webkit-scrollbar {
+        width: 8px;
+    }
+    .scroll-area-with-thumb::-webkit-scrollbar-thumb {
+        background: #666;
+        border-radius: 4px;
+    }
+    .bg-primary-2 {
+        background-color: rgba(25, 118, 210, 0.2);
+    }
+    </style>
+    """)
+
     # Apply standard CSS styles to ensure proper element containment
     ui.query('.nicegui-content').classes('h-screen p-0')
     
     # Main layout container with fixed width sidebar and chat area
     with ui.row().classes('w-full h-screen no-wrap p-0 m-0'):
         # Left sidebar - fixed width with Gmail setup and future config options
-        with ui.column().classes('w-1/4 h-full').style('min-width: 300px; max-width: 300px'):
-            with ui.card().classes("w-full h-full p-4 overflow-auto"):
-                ui.label("Gmail Accounts").classes("text-h6 mb-4 text-primary")
+        with ui.column().classes('w-1/4 h-full').style('min-width: 300px; max-width: 300px; background-color: var(--card-dark)'):
+            with ui.card().props('flat bordered').classes("w-full h-full q-pa-md"):
+                ui.label("Gmail Accounts").classes("text-h5 text-weight-medium text-primary q-mb-md")
                 
-                # Setup All button
+                # Setup All button with Quasar styling
                 ui.button(
                     "Setup All Gmail Accounts", 
                     on_click=setup_gmail_auth
-                ).props('color=primary full-width').classes("mb-4")
+                ).props('color=primary full-width unelevated').classes("text-button q-mb-md")
                 
                 # Account selection
                 accounts = config.config.get("gmail", {}).get("accounts", [])
@@ -363,42 +396,44 @@ def main(config: ConfigManager):
                     account_options[(name, token_path)] = name
                 
                 if account_options:
+                    ui.label("Account Selection").classes("text-subtitle2 text-weight-medium q-mt-sm q-mb-xs")
                     ui.select(
                         options=account_options,
                         label="Select account to setup",
                         on_change=lambda e: setup_specific_gmail_auth(e.value),
-                    ).classes("w-full mb-4")
+                    ).props('outlined filled bg-dark').classes("w-full q-mb-md")
                 
-                ui.separator().classes("my-4")
+                ui.separator().props('dark spaced')
                 
-                # Add New Account button
+                # Add New Account button with improved styling
                 ui.button(
                     "Add New Gmail Account", 
                     on_click=add_new_gmail_account
-                ).props('color=positive full-width')
+                ).props('color=positive full-width unelevated').classes("text-button q-mt-md")
                 
                 # Reserved space for future configuration UI
-                with ui.expansion("Future Configuration").classes("mt-8 w-full"):
-                    ui.label("Space reserved for future configuration options")
+                with ui.expansion("Future Configuration").classes("q-mt-xl w-full"):
+                    ui.label("Configuration Options").classes("text-subtitle1 text-weight-regular")
+                    ui.label("Space reserved for future configuration options").classes("text-body2 text-weight-light text-grey-6")
         
         # Main chat area - takes remaining width
         with ui.column().classes('w-3/4 h-full p-4'):
-            # Container for chat messages - most of the height
-            chat_message_container = ui.scroll_area().classes(
-                "w-full h-5/6 bg-gray-800 rounded-lg p-4"
-            )
+            # Container for chat messages with improved styling
+            ui.label("Chat").classes("text-h4 text-weight-regular text-primary q-mb-md")
             
-            # Input area fixed at bottom
-            with ui.card().classes("w-full mt-4"):
-                with ui.row().classes("w-full items-center"):
-                    # Input field
+            chat_message_container = ui.scroll_area().classes(
+                "w-full h-5/6 bg-grey-9 rounded-lg p-4 scroll-area-with-thumb"
+            ).props('dark')
+            
+            # Input area with enhanced styling
+            with ui.card().props('flat bordered').classes("w-full q-mt-md q-pa-sm"):
+                # ui.label("Message").classes("text-caption text-weight-regular q-mb-xs text-grey-6")
+                with ui.row().classes("w-full items-end justify-between"):
                     input_field = ui.textarea(
                         placeholder="Type your message...",
-                    ).classes("w-full")
+                    ).props('outlined filled autogrow hide-bottom-space').classes("flex-grow text-body1")
                     
-                    # Send button
-                    send_button = ui.button(icon="send").props('color=primary')
-
+                    send_button = ui.button(icon="send").props('round color=primary').classes("q-ml-sm self-center")
     # Define function to handle message sending and clear the input
     async def handle_send():
         message = input_field.value
