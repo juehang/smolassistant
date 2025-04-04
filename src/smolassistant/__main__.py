@@ -1,5 +1,6 @@
 import os
 import queue
+import re
 
 from nicegui import run, ui
 from smolagents import CodeAgent, DuckDuckGoSearchTool, LiteLLMModel
@@ -26,6 +27,20 @@ from .tools.reminder import (
 )
 from .tools.reminder.service import ReminderService
 from .tools.telegram import create_telegram_bot, run_telegram_bot
+
+
+def format_message_for_ui(message):
+    """
+    Format a message for UI display by converting newlines to <br> tags.
+    
+    Args:
+        message: The message to format
+        
+    Returns:
+        Formatted message with newlines converted to <br> tags
+    """
+    # Replace newlines with <br> tags, but preserve existing HTML
+    return message.replace('\n', '<br>')
 
 
 async def process_message(
@@ -60,18 +75,22 @@ async def process_message(
     response = await run.io_bound(
         agent.run, message + "\n" + additional_instructions, reset=True,
     )
+    
+    # Format the response for UI display (convert newlines to <br>)
+    ui_response = format_message_for_ui(response)
+    
     # Display the response in the chat container
     with container:
         ui.chat_message(
-            text=response, name="Assistant", sent=False, text_html=True,
+            text=ui_response, name="Assistant", sent=False, text_html=True,
         )
 
-    # Add assistant response to history
+    # Add assistant response to history (original format)
     message_history.add_message("assistant", response)
 
-    # If Telegram response callback is available, send the response there too
+    # If Telegram response callback is available, send the original response there too
     if telegram_cb:
-        telegram_cb(response)
+        telegram_cb(response)  # Send original format to Telegram
 
     return response
 
@@ -131,15 +150,20 @@ async def send_message(
         message_history: The MessageHistory instance to store messages
         telegram_cb: Optional callback to send responses to Telegram
     """
-    message_queue.put(message)
-    await process_queue(
-        message_queue,
-        agent,
-        container,
-        message_history,
-        telegram_cb,
-        additional_instructions=additional_instructions,
-    )
+    # Store message value and clear input field immediately
+    msg_value = message.strip()
+    
+    # Only process if there's actual content
+    if msg_value:
+        message_queue.put(msg_value)
+        await process_queue(
+            message_queue,
+            agent,
+            container,
+            message_history,
+            telegram_cb,
+            additional_instructions=additional_instructions,
+        )
 
 
 # Setup Gmail auth functions
@@ -153,13 +177,19 @@ async def setup_gmail_auth():
     ui.notify(
         f"Starting authentication for {len(accounts) + 1} Gmail accounts. "
         "Check the console for progress.",
+        position="top",
+        color="primary",
     )
 
     # Use run.io_bound to prevent blocking the UI
     result = await run.io_bound(initialize_all_gmail_auth)
 
     # Display result to user
-    ui.notify(result)
+    ui.notify(
+        result,
+        position="top",
+        color="positive" if "successful" in result.lower() else "negative",
+    )
 
 
 async def setup_specific_gmail_auth(account_info):
@@ -174,30 +204,39 @@ async def setup_specific_gmail_auth(account_info):
         initialize_gmail_auth, account_name, token_path,
     )
     # Display result to user
-    ui.notify(result)
+    ui.notify(
+        result,
+        position="top",
+        color="positive" if "successful" in result.lower() else "negative",
+    )
 
 
 async def add_new_gmail_account():
     """Add a new Gmail account to the configuration."""
     # Create a dialog to get account details
     with ui.dialog() as dialog, ui.card():
-        ui.label("Add New Gmail Account")
+        ui.label("Add New Gmail Account").classes("text-h6 q-mb-md")
         name_input = ui.input("Account Name")
 
         async def submit():
             name = name_input.value
 
             if not name:
-                ui.notify("Please enter an account name")
+                ui.notify("Please enter an account name", color="warning")
                 return
 
             # Use run.io_bound to prevent blocking the UI
             result = await run.io_bound(add_gmail_account, name)
-            ui.notify(result)
+            ui.notify(
+                result,
+                position="top",
+                color="positive" if "successful" in result.lower() else "negative",
+            )
             dialog.close()
 
-        ui.button("Add", on_click=submit)
-        ui.button("Cancel", on_click=dialog.close)
+        with ui.row().classes("justify-end q-mt-md"):
+            ui.button("Cancel", on_click=dialog.close)
+            ui.button("Add", on_click=submit).props('color=positive')
 
     dialog.open()
 
@@ -296,63 +335,93 @@ def main(config: ConfigManager):
     # Create the UI with dark theme
     ui.dark_mode().enable()
 
-    chat_container = ui.column().classes(
-        "grid grid-cols-3 grid-rows-5 w-full h-full",
-    )
-    with chat_container:
-        chat_message_container = ui.scroll_area().classes(
-            "bg-black border border-cyan-950 rounded-lg "
-            "col-start-2 min-h-[65vh] col-span-2",
-        )
+    # Apply standard CSS styles to ensure proper element containment
+    ui.query('.nicegui-content').classes('h-screen p-0')
+    
+    # Main layout container with fixed width sidebar and chat area
+    with ui.row().classes('w-full h-screen no-wrap p-0 m-0'):
+        # Left sidebar - fixed width with Gmail setup and future config options
+        with ui.column().classes('w-1/4 h-full').style('min-width: 300px; max-width: 300px'):
+            with ui.card().classes("w-full h-full p-4 overflow-auto"):
+                ui.label("Gmail Accounts").classes("text-h6 mb-4 text-primary")
+                
+                # Setup All button
+                ui.button(
+                    "Setup All Gmail Accounts", 
+                    on_click=setup_gmail_auth
+                ).props('color=primary full-width').classes("mb-4")
+                
+                # Account selection
+                accounts = config.config.get("gmail", {}).get("accounts", [])
+                account_options = {}
+                
+                for account in accounts:
+                    name = account.get("name", "unnamed")
+                    token_path = os.path.join(
+                        config_dir, account.get("token_path"),
+                    )
+                    account_options[(name, token_path)] = name
+                
+                if account_options:
+                    ui.select(
+                        options=account_options,
+                        label="Select account to setup",
+                        on_change=lambda e: setup_specific_gmail_auth(e.value),
+                    ).classes("w-full mb-4")
+                
+                ui.separator().classes("my-4")
+                
+                # Add New Account button
+                ui.button(
+                    "Add New Gmail Account", 
+                    on_click=add_new_gmail_account
+                ).props('color=positive full-width')
+                
+                # Reserved space for future configuration UI
+                with ui.expansion("Future Configuration").classes("mt-8 w-full"):
+                    ui.label("Space reserved for future configuration options")
+        
+        # Main chat area - takes remaining width
+        with ui.column().classes('w-3/4 h-full p-4'):
+            # Container for chat messages - most of the height
+            chat_message_container = ui.scroll_area().classes(
+                "w-full h-5/6 bg-gray-800 rounded-lg p-4"
+            )
+            
+            # Input area fixed at bottom
+            with ui.card().classes("w-full mt-4"):
+                with ui.row().classes("w-full items-center"):
+                    # Input field
+                    input_field = ui.textarea(
+                        placeholder="Type your message...",
+                    ).classes("w-full")
+                    
+                    # Send button
+                    send_button = ui.button(icon="send").props('color=primary')
 
-        # Add Gmail API setup buttons
-        with ui.card().classes(
-            "bg-black border border-cyan-950 rounded-lg col-start-1",
-        ):
-            ui.button("Setup All Gmail Accounts", on_click=setup_gmail_auth)
+    # Define function to handle message sending and clear the input
+    async def handle_send():
+        message = input_field.value
+        if message.strip():
+            # Clear the input field immediately
+            current_message = message
+            input_field.value = ""
+            # Send the message
+            await send_message(
+                message_queue,
+                current_message,
+                agent,
+                chat_message_container,
+                message_history,
+                telegram_cb,
+                additional_instructions=config.config["additional_instructions"],
+            )
 
-            # Create a dropdown for account selection
-            accounts = config.config.get("gmail", {}).get("accounts", [])
-            account_options = {}
+    # Event handler for input field and send button
+    input_field.on("keydown.enter", handle_send)
+    send_button.on("click", handle_send)
 
-            for account in accounts:
-                name = account.get("name", "unnamed")
-                token_path = os.path.join(
-                    config_dir, account.get("token_path"),
-                )
-                account_options[(name, token_path)] = name
-
-            if account_options:
-                ui.select(
-                    options=account_options,
-                    label="Select account to setup",
-                    on_change=lambda e: setup_specific_gmail_auth(e.value),
-                ).classes("w-64")
-
-            # Add button to add a new account
-            ui.button("Add New Gmail Account", on_click=add_new_gmail_account)
-
-        with ui.card().classes(
-            "bg-black border border-cyan-950 rounded-lg "
-            "col-start-2 min-h-[20vh] col-span-2",
-        ):
-            input_field = ui.textarea(
-                placeholder="Type your message...",
-            ).classes("w-full h-full bg-black text-white")
-
-    input_field.on(
-        "keydown.enter",
-        lambda: send_message(
-            message_queue,
-            input_field.value,
-            agent,
-            chat_message_container,
-            message_history,
-            telegram_cb,
-            additional_instructions=config.config["additional_instructions"],
-        ),
-    )
-
+    # Process queue timer
     ui.timer(
         1.0,
         lambda: process_queue(
