@@ -58,12 +58,12 @@ async def process_message(
             sent=True,
         )
     response = await run.io_bound(
-        agent.run, message + "\n" + additional_instructions, reset=True
+        agent.run, message + "\n" + additional_instructions, reset=True,
     )
     # Display the response in the chat container
     with container:
         ui.chat_message(
-            text=response, name="Assistant", sent=False, text_html=True
+            text=response, name="Assistant", sent=False, text_html=True,
         )
 
     # Add assistant response to history
@@ -152,7 +152,7 @@ async def setup_gmail_auth():
     # Notify user that authentication is starting
     ui.notify(
         f"Starting authentication for {len(accounts) + 1} Gmail accounts. "
-        "Check the console for progress."
+        "Check the console for progress.",
     )
 
     # Use run.io_bound to prevent blocking the UI
@@ -171,7 +171,7 @@ async def setup_specific_gmail_auth(account_info):
 
     # Use run.io_bound to prevent blocking the UI
     result = await run.io_bound(
-        initialize_gmail_auth, account_name, token_path
+        initialize_gmail_auth, account_name, token_path,
     )
     # Display result to user
     ui.notify(result)
@@ -209,11 +209,13 @@ def main(config: ConfigManager):
 
     # Initialize the message history with max size from config
     message_history = MessageHistory(
-        max_size=config.config.get("message_history", {}).get("max_size", 20)
+        max_size=config.config.get("message_history", {}).get("max_size", 20),
     )
 
     # Get the database path from config
-    db_path = config.config.get("reminders", {}).get("db_path", "reminders.sqlite")
+    db_path = config.config.get("reminders", {}).get(
+        "db_path", "reminders.sqlite",
+    )
 
     # If the path is not absolute, make it relative to the config directory
     if not os.path.isabs(db_path):
@@ -272,7 +274,7 @@ def main(config: ConfigManager):
     telegram_enabled = config.config.get("telegram", {}).get("enabled", False)
     telegram_token = config.config.get("telegram", {}).get("token", "")
     authorized_user_id = config.config.get("telegram", {}).get(
-        "authorized_user_id"
+        "authorized_user_id",
     )
 
     # Initialize and start Telegram bot if enabled
@@ -295,17 +297,17 @@ def main(config: ConfigManager):
     ui.dark_mode().enable()
 
     chat_container = ui.column().classes(
-        "grid grid-cols-3 grid-rows-5 w-full h-full"
+        "grid grid-cols-3 grid-rows-5 w-full h-full",
     )
     with chat_container:
         chat_message_container = ui.scroll_area().classes(
             "bg-black border border-cyan-950 rounded-lg "
-            "col-start-2 min-h-[65vh] col-span-2"
+            "col-start-2 min-h-[65vh] col-span-2",
         )
 
         # Add Gmail API setup buttons
         with ui.card().classes(
-            "bg-black border border-cyan-950 rounded-lg col-start-1"
+            "bg-black border border-cyan-950 rounded-lg col-start-1",
         ):
             ui.button("Setup All Gmail Accounts", on_click=setup_gmail_auth)
 
@@ -316,7 +318,7 @@ def main(config: ConfigManager):
             for account in accounts:
                 name = account.get("name", "unnamed")
                 token_path = os.path.join(
-                    config_dir, account.get("token_path")
+                    config_dir, account.get("token_path"),
                 )
                 account_options[(name, token_path)] = name
 
@@ -332,10 +334,10 @@ def main(config: ConfigManager):
 
         with ui.card().classes(
             "bg-black border border-cyan-950 rounded-lg "
-            "col-start-2 min-h-[20vh] col-span-2"
+            "col-start-2 min-h-[20vh] col-span-2",
         ):
             input_field = ui.textarea(
-                placeholder="Type your message..."
+                placeholder="Type your message...",
             ).classes("w-full h-full bg-black text-white")
 
     input_field.on(

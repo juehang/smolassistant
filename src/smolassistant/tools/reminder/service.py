@@ -1,8 +1,8 @@
+import sqlite3
 import threading
 import time
-import sqlite3
-from datetime import datetime
 import uuid
+from datetime import datetime
 
 import schedule
 
@@ -64,7 +64,9 @@ class ReminderService:
         conn.close()
 
     def start(self):
-        """Start the scheduler in a background thread and load saved reminders"""
+        """
+        Start the scheduler in a background thread and load saved reminders
+        """
         if not self._running:
             self._stop_event = threading.Event()
 
@@ -121,7 +123,7 @@ class ReminderService:
 
                 # Recreate the reminder
                 self.create_one_time_reminder(
-                    reminder["message"], reminder["id"], seconds_until_due
+                    reminder["message"], reminder["id"], seconds_until_due,
                 )
             else:
                 # Due time has already passed, trigger immediately
@@ -155,14 +157,15 @@ class ReminderService:
         conn.close()
 
     def create_one_time_reminder(
-        self, message, reminder_id=None, seconds_until_due=None, due_time=None
+        self, message, reminder_id=None, seconds_until_due=None, due_time=None,
     ):
         """
         Create a one-time reminder in both schedule and database
 
         Args:
             message: The reminder message
-            reminder_id: Optional ID for the reminder (generated if not provided)
+            reminder_id: Optional ID for the reminder
+                         (generated if not provided)
             seconds_until_due: Seconds until the reminder is due
             due_time: ISO format datetime when the reminder should trigger
                       (required if seconds_until_due is not provided)
@@ -202,7 +205,7 @@ class ReminderService:
 
         # Schedule the job
         job = schedule.every(seconds_until_due).seconds.do(
-            reminder_job, message=message, reminder_id=reminder_id
+            reminder_job, message=message, reminder_id=reminder_id,
         )
         job.tag("reminder", reminder_id)
 
@@ -213,7 +216,10 @@ class ReminderService:
 
             try:
                 cursor.execute(
-                    "INSERT OR REPLACE INTO one_time_reminders VALUES (?, ?, ?, ?)",
+                    (
+                        "INSERT OR REPLACE INTO one_time_reminders "
+                        "VALUES (?, ?, ?, ?)"
+                     ),
                     (
                         reminder_id,
                         message,
@@ -231,14 +237,15 @@ class ReminderService:
         return reminder_id, job
 
     def create_recurring_reminder(
-        self, message, reminder_id=None, interval=None, time_spec=""
+        self, message, reminder_id=None, interval=None, time_spec="",
     ):
         """
         Create a recurring reminder in both schedule and database
 
         Args:
             message: The reminder message
-            reminder_id: Optional ID for the reminder (generated if not provided)
+            reminder_id: Optional ID for the reminder
+                         (generated if not provided)
             interval: The recurrence pattern
             time_spec: Optional time specification
 
@@ -254,10 +261,13 @@ class ReminderService:
 
         # Define the job function
         def reminder_job(
-            message=None, reminder_id=None, interval=None, time_spec=None
+            message=None, interval=None, time_spec=None,
         ):
             if time_spec:
-                formatted_message = f"🔄 RECURRING REMINDER ({interval} at {time_spec}): {message}"
+                formatted_message = (
+                    f"🔄 RECURRING REMINDER "
+                    f"({interval} at {time_spec}): {message}"
+                )
             else:
                 formatted_message = (
                     f"🔄 RECURRING REMINDER ({interval}): {message}"
@@ -361,7 +371,10 @@ class ReminderService:
 
             try:
                 cursor.execute(
-                    "INSERT OR REPLACE INTO recurring_reminders VALUES (?, ?, ?, ?, ?)",
+                    (
+                        "INSERT OR REPLACE INTO recurring_reminders "
+                        "VALUES (?, ?, ?, ?, ?)"
+                    ),
                     (
                         reminder_id,
                         message,
@@ -398,7 +411,7 @@ class ReminderService:
 
         try:
             cursor.execute(
-                "DELETE FROM one_time_reminders WHERE id = ?", (reminder_id,)
+                "DELETE FROM one_time_reminders WHERE id = ?", (reminder_id,),
             )
             conn.commit()
             success = True
@@ -428,7 +441,7 @@ class ReminderService:
 
         try:
             cursor.execute(
-                "DELETE FROM recurring_reminders WHERE id = ?", (reminder_id,)
+                "DELETE FROM recurring_reminders WHERE id = ?", (reminder_id,),
             )
             conn.commit()
             success = True

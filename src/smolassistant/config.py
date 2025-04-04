@@ -52,8 +52,8 @@ DEFAULTS = {
         "model": "anthropic/claude-3-haiku-20240307",
         "summary_prompt": (
             "Summarize the following text. Preserve key information "
-            "while being concise. For emails, include sender, subject, and main points. "
-            "For webpages, include main topics and key details. "
+            "while being concise. For emails, include sender, subject, and "
+            "main points. For webpages, include main topics and key details. "
             "For attachments, mention types but not full filenames."
         ),
     },
@@ -105,10 +105,10 @@ class ConfigManager:
                     changed = True
                 # If the value is a dictionary, recursively update it
                 elif isinstance(default_value, dict) and isinstance(
-                    config[key], dict
+                    config[key], dict,
                 ):
                     update_recursively(
-                        config[key], default_value, current_path
+                        config[key], default_value, current_path,
                     )
 
         update_recursively(self.config, DEFAULTS)
