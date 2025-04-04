@@ -300,7 +300,7 @@ def main(config: ConfigManager):
     with chat_container:
         chat_message_container = ui.scroll_area().classes(
             "bg-black border border-cyan-950 rounded-lg "
-            "col-start-2 min-h-[65vh]"
+            "col-start-2 min-h-[65vh] col-span-2"
         )
 
         # Add Gmail API setup buttons
@@ -332,7 +332,7 @@ def main(config: ConfigManager):
 
         with ui.card().classes(
             "bg-black border border-cyan-950 rounded-lg "
-            "col-start-2 min-h-[20vh]"
+            "col-start-2 min-h-[20vh] col-span-2"
         ):
             input_field = ui.textarea(
                 placeholder="Type your message..."
