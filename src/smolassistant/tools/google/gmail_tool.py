@@ -6,7 +6,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from smolagents import tool
 
-from .auth import get_credentials
+from .auth import get_credentials, GMAIL_SCOPES
 
 
 def calculate_date_range(days):
@@ -235,7 +235,7 @@ def get_unread_emails_tool(summarize_func: Optional[Callable] = None):
         """
         try:
             # Get credentials for all accounts
-            all_creds = get_credentials()
+            all_creds = get_credentials(GMAIL_SCOPES)
 
             services_with_messages = []
 
@@ -313,7 +313,7 @@ def search_emails_tool(summarize_func: Optional[Callable] = None):
         """
         try:
             # Get credentials for all accounts
-            all_creds = get_credentials()
+            all_creds = get_credentials(GMAIL_SCOPES)
 
             services_with_messages = []
 

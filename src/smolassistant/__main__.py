@@ -1,294 +1,660 @@
 import os
-import queue
-import re
-from datetime import datetime
+import sys
+import asyncio
+import json
+import threading
+import logging
+import datetime
+import traceback
+from typing import Dict, List, Tuple, Optional, Any, Set, Callable
+import textwrap
 
-from nicegui import run, ui
-from smolagents import CodeAgent, DuckDuckGoSearchTool, LiteLLMModel
+import nicegui
+from nicegui import app, ui
+import litellm
+from litellm import completion
 
-# Removed unused imports since we're not displaying memory steps for now
-from .config import ConfigManager, config_dir
-from .tools.gmail import (
-    add_gmail_account,
-    get_unread_emails_tool,
-    initialize_all_gmail_auth,
-    initialize_gmail_auth,
-    search_emails_tool,
+from smolagents import (
+    CodeAgent,
+    DuckDuckGoSearchTool,
+    VisitWebpageTool,
+    WikipediaQueryTool,
 )
-from .tools.llm_text_processor import (
-    SummarizingVisitWebpageTool,
-    process_text_tool,
+import pytz
+from loguru import logger
+logger.remove()
+logger.add(
+    lambda msg: logging.info(msg),
+    format="{message}",
+    filter=lambda record: record["level"].name == "INFO"
 )
-from .tools.message_history import MessageHistory, get_message_history_tool
-from .tools.reminder import (
-    cancel_reminder_tool,
-    get_reminders_tool,
-    set_recurring_reminder_tool,
+
+# Import our tools
+from .config import ConfigManager
+from .tools import (
     set_reminder_tool,
+    set_recurring_reminder_tool,
+    get_reminders_tool,
+    cancel_reminder_tool,
+    get_unread_emails_tool,
+    search_emails_tool,
+    get_upcoming_events_tool,
+    search_calendar_events_tool,
+    initialize_gmail_auth,
+    initialize_calendar_auth,
+    create_telegram_bot,
+    run_telegram_bot,
+    process_text_tool,
+    SummarizingVisitWebpageTool,
 )
-from .tools.reminder.service import ReminderService
-from .tools.telegram import create_telegram_bot, run_telegram_bot
+
+# Initialize configuration
+config = ConfigManager().config
 
 
-def format_message_for_ui(message):
+class MessageService:
+    """Manages messages from all sources."""
+
+    def __init__(self):
+        self.messages = {}
+        self.counter = 0
+        self.lock = threading.Lock()
+
+    def add_message(
+        self, content: str, role: str = "user", source: str = "web"
+    ) -> int:
+        """Add a message and return its ID."""
+        with self.lock:
+            message_id = self.counter
+            self.counter += 1
+            self.messages[message_id] = {
+                "content": content,
+                "role": role,
+                "source": source,
+                "timestamp": datetime.datetime.now().isoformat(),
+            }
+            return message_id
+
+    def get_message(self, message_id: int) -> Dict:
+        """Get a message by ID."""
+        return self.messages.get(message_id, {})
+
+    def get_messages(self) -> Dict[int, Dict]:
+        """Get all messages."""
+        return self.messages.copy()
+
+
+# Create a global message service
+message_service = MessageService()
+
+
+def get_message_history_tool(history_service: MessageService):
     """
-    Format a message for UI display by converting newlines to <br> tags.
-    
+    Create a tool to get message history.
+
     Args:
-        message: The message to format
-        
+        history_service: The message history service
+
     Returns:
-        Formatted message with newlines converted to <br> tags
+        A tool function
     """
-    # Replace newlines with <br> tags, but preserve existing HTML
-    return message.replace('\n', '<br>')
+    from smolagents import tool
+
+    @tool
+    def get_message_history(max_messages: int = 10) -> str:
+        """
+        Get recent message history to maintain context.
+
+        Args:
+            max_messages: Maximum number of messages to return (default: 10)
+
+        Returns:
+            Recent message history as a string
+        """
+        messages = history_service.get_messages()
+        # Sort by ID (which corresponds to creation order)
+        sorted_msgs = sorted(messages.items(), key=lambda x: x[0], reverse=True)
+        # Take the most recent N messages
+        recent_msgs = sorted_msgs[:max_messages]
+        # Reverse to get chronological order
+        recent_msgs.reverse()
+
+        # Format messages
+        result = "Recent message history:\n\n"
+        for msg_id, msg in recent_msgs:
+            source = msg.get("source", "unknown")
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            timestamp = msg.get("timestamp", "")
+
+            # Format timestamp if available
+            time_str = ""
+            if timestamp:
+                try:
+                    dt = datetime.datetime.fromisoformat(timestamp)
+                    time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    time_str = timestamp
+
+            result += f"ID: {msg_id} | Source: {source} | Role: {role} | Time: {time_str}\n"
+            result += f"Content: {content}\n\n"
+
+        return result
+
+    return get_message_history
 
 
-def get_current_time():
-    """Get formatted current time for message timestamps."""
-    return datetime.now().strftime("%H:%M")
+class ReminderService:
+    """Manages one-time and recurring reminders."""
+
+    def __init__(self):
+        import schedule
+        self.schedule = schedule
+        self.reminders = {}
+        self.recurring_reminders = {}
+        self.next_id = 1
+        self.callback = None
+        self.lock = threading.Lock()
+        self.scheduler_thread = None
+        self.running = False
+
+    def set_callback(self, callback_func):
+        """Set the callback function to be called when a reminder is triggered."""
+        self.callback = callback_func
+
+    def set_reminder(self, text, datetime_str):
+        """
+        Set a one-time reminder.
+
+        Args:
+            text: The reminder text
+            datetime_str: ISO format datetime string
+
+        Returns:
+            Reminder ID and scheduled time
+        """
+        with self.lock:
+            reminder_id = f"reminder_{self.next_id}"
+            self.next_id += 1
+
+            # Parse the datetime string
+            dt = datetime.datetime.fromisoformat(datetime_str)
+
+            # Calculate seconds until the reminder
+            now = datetime.datetime.now()
+            seconds_until = (dt - now).total_seconds()
+
+            if seconds_until <= 0:
+                return f"Error: Cannot set reminder in the past. Requested time: {dt}, Current time: {now}"
+
+            # Add the job to the schedule
+            self.schedule.every(seconds_until).seconds.do(
+                self._trigger_reminder, reminder_id=reminder_id, text=text
+            ).tag(reminder_id, "reminder")
+
+            # Store the reminder info
+            self.reminders[reminder_id] = {
+                "text": text,
+                "datetime": dt.isoformat(),
+                "created": now.isoformat(),
+            }
+
+            return reminder_id, dt.isoformat()
+
+    def set_recurring_reminder(self, text, interval, time_spec=None):
+        """
+        Set a recurring reminder.
+
+        Args:
+            text: The reminder text
+            interval: The interval (e.g., "day", "monday", "2 hours")
+            time_spec: Optional time specification (e.g., "10:30")
+
+        Returns:
+            Reminder ID and next occurrence
+        """
+        with self.lock:
+            reminder_id = f"recurring_{self.next_id}"
+            self.next_id += 1
+
+            # Process the interval and time_spec to create the schedule
+            job = None
+
+            # Parse various interval formats
+            if interval.lower() == "day":
+                # Daily at specified time
+                if time_spec:
+                    hour, minute = map(int, time_spec.split(":"))
+                    job = self.schedule.every().day.at(time_spec).do(
+                        self._trigger_reminder, reminder_id=reminder_id, text=text
+                    )
+                else:
+                    # Daily from now
+                    job = self.schedule.every().day.do(
+                        self._trigger_reminder, reminder_id=reminder_id, text=text
+                    )
+            elif interval.lower() in [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+            ]:
+                # Weekly on a specific day
+                day_attr = getattr(self.schedule.every(), interval.lower())
+                if time_spec:
+                    job = day_attr.at(time_spec).do(
+                        self._trigger_reminder, reminder_id=reminder_id, text=text
+                    )
+                else:
+                    job = day_attr.do(
+                        self._trigger_reminder, reminder_id=reminder_id, text=text
+                    )
+            elif interval.lower() == "hour":
+                # Hourly at specified minute
+                if time_spec and time_spec.startswith(":"):
+                    minute = int(time_spec[1:])
+                    job = self.schedule.every().hour.at(f":{minute:02d}").do(
+                        self._trigger_reminder, reminder_id=reminder_id, text=text
+                    )
+                else:
+                    # Every hour from now
+                    job = self.schedule.every().hour.do(
+                        self._trigger_reminder, reminder_id=reminder_id, text=text
+                    )
+            elif interval.lower() == "minute":
+                # Every minute at specified second
+                if time_spec and time_spec.startswith(":"):
+                    second = int(time_spec[1:])
+                    # Note: schedule doesn't support minute:second, so we use a custom approach
+                    def run_at_second():
+                        current_second = datetime.datetime.now().second
+                        if current_second == second:
+                            self._trigger_reminder(reminder_id=reminder_id, text=text)
+
+                    job = self.schedule.every().minute.do(run_at_second)
+                else:
+                    # Every minute from now
+                    job = self.schedule.every().minute.do(
+                        self._trigger_reminder, reminder_id=reminder_id, text=text
+                    )
+            elif " " in interval:
+                # Interval like "2 hours", "30 minutes"
+                try:
+                    number, unit = interval.split(" ", 1)
+                    number = int(number)
+                    unit = unit.rstrip("s")  # Remove potential plural 's'
+
+                    if unit == "minute":
+                        job = self.schedule.every(number).minutes.do(
+                            self._trigger_reminder, reminder_id=reminder_id, text=text
+                        )
+                    elif unit == "hour":
+                        job = self.schedule.every(number).hours.do(
+                            self._trigger_reminder, reminder_id=reminder_id, text=text
+                        )
+                    elif unit == "day":
+                        job = self.schedule.every(number).days.do(
+                            self._trigger_reminder, reminder_id=reminder_id, text=text
+                        )
+                    elif unit == "week":
+                        job = self.schedule.every(number).weeks.do(
+                            self._trigger_reminder, reminder_id=reminder_id, text=text
+                        )
+                    elif unit == "second":
+                        job = self.schedule.every(number).seconds.do(
+                            self._trigger_reminder, reminder_id=reminder_id, text=text
+                        )
+                except ValueError:
+                    return f"Error: Unable to parse interval '{interval}'"
+            else:
+                # Other intervals as seconds
+                try:
+                    seconds = int(interval)
+                    job = self.schedule.every(seconds).seconds.do(
+                        self._trigger_reminder, reminder_id=reminder_id, text=text
+                    )
+                except ValueError:
+                    return f"Error: Unknown interval format '{interval}'"
+
+            if job:
+                job.tag(reminder_id, "recurring")
+                # Store the reminder info
+                self.recurring_reminders[reminder_id] = {
+                    "text": text,
+                    "interval": interval,
+                    "time_spec": time_spec,
+                    "created": datetime.datetime.now().isoformat(),
+                }
+                # Calculate next run time
+                next_run = job.next_run
+                if next_run:
+                    return reminder_id, next_run.isoformat()
+                else:
+                    return reminder_id, "Unknown next run time"
+            else:
+                return f"Error: Failed to set recurring reminder with interval '{interval}'"
+
+    def get_reminders(self):
+        """Get all pending reminders."""
+        with self.lock:
+            result = "One-time reminders:\n"
+            if not self.reminders:
+                result += "  No one-time reminders set.\n"
+            else:
+                for reminder_id, info in self.reminders.items():
+                    try:
+                        dt = datetime.datetime.fromisoformat(info["datetime"])
+                        formatted_dt = dt.strftime("%Y-%m-%d %H:%M:%S")
+                        result += f"  🔔 {reminder_id}: {info['text']} (at {formatted_dt})\n"
+                    except Exception as e:
+                        result += f"  🔔 {reminder_id}: {info['text']} (Error: {str(e)})\n"
+
+            result += "\nRecurring reminders:\n"
+            if not self.recurring_reminders:
+                result += "  No recurring reminders set.\n"
+            else:
+                for reminder_id, info in self.recurring_reminders.items():
+                    time_spec_str = f" at {info['time_spec']}" if info['time_spec'] else ""
+                    result += f"  🔄 {reminder_id}: {info['text']} (every {info['interval']}{time_spec_str})\n"
+
+            return result
+
+    def cancel_reminder(self, reminder_id):
+        """Cancel a reminder by ID."""
+        with self.lock:
+            if reminder_id in self.reminders:
+                # Clear all jobs with this tag
+                self.schedule.clear(reminder_id)
+                # Remove from our dictionary
+                reminder_info = self.reminders.pop(reminder_id)
+                return f"Cancelled one-time reminder: {reminder_info['text']}"
+            elif reminder_id in self.recurring_reminders:
+                # Clear all jobs with this tag
+                self.schedule.clear(reminder_id)
+                # Remove from our dictionary
+                reminder_info = self.recurring_reminders.pop(reminder_id)
+                return f"Cancelled recurring reminder: {reminder_info['text']}"
+            else:
+                return f"Error: No reminder found with ID {reminder_id}"
+
+    def _trigger_reminder(self, reminder_id, text):
+        """Trigger a reminder."""
+        try:
+            if self.callback:
+                self.callback(text, reminder_id)
+
+            # For one-time reminders, remove from storage after triggering
+            if reminder_id in self.reminders:
+                with self.lock:
+                    self.reminders.pop(reminder_id, None)
+                return self.schedule.CancelJob
+            return None
+        except Exception as e:
+            print(f"Error triggering reminder: {str(e)}")
+            traceback.print_exc()
+            return None
+
+    def start_scheduler(self):
+        """Start the scheduler in a background thread."""
+        if self.running:
+            return  # Already running
+
+        self.running = True
+
+        def run_scheduler():
+            while self.running:
+                self.schedule.run_pending()
+                # Sleep for a short time to avoid high CPU usage
+                time.sleep(1)
+
+        self.scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+        self.scheduler_thread.start()
+
+    def stop_scheduler(self):
+        """Stop the scheduler."""
+        self.running = False
+        if self.scheduler_thread:
+            self.scheduler_thread.join(timeout=5)
+            self.scheduler_thread = None
 
 
-async def process_message(
-    message,
-    agent,
-    container,
-    message_history,
-    telegram_cb=None,
-    additional_instructions="",
+async def handle_user_message(
+    agent_instance, message, context=None, sender_info=None, ui_callbacks=None
 ):
     """
-    Process a message through the agent and display the response.
+    Process a user message through the agent.
 
     Args:
-        message: The message to process
-        agent: The agent to process the message
-        container: The UI container to display the message and response
-        message_history: The MessageHistory instance to store messages
-        telegram_cb: Optional callback to send the response to Telegram
+        agent_instance: The agent instance
+        message: User message
+        context: Optional context
+        sender_info: Optional sender information
+        ui_callbacks: Optional UI callbacks
+
+    Returns:
+        Agent response
     """
-    # Add user message to history
-    message_history.add_message("user", message)
+    try:
+        logger.info(f"Received message: {message}")
 
-    # Custom styled user message
-    with container:
-        with ui.element("div").classes("flex justify-end q-mb-md"):
-            with ui.card().props('flat bordered').classes("q-pa-sm bg-primary-2"):
-                ui.label("You").classes("text-subtitle2 text-weight-medium text-primary")
-                ui.label(message).classes("text-body1")
-                ui.label(get_current_time()).classes("text-caption text-weight-light text-grey-6 text-right")
-    
-    # Process the message
-    response = await run.io_bound(
-        agent.run, message + "\n" + additional_instructions, reset=True,
-    )
-    
-    # Format the response for UI display (convert newlines to <br>)
-    ui_response = format_message_for_ui(response)
-    
-    # Custom styled assistant message
-    with container:
-        with ui.element("div").classes("flex justify-start q-mb-md"):
-            with ui.card().props('flat bordered').classes("q-pa-sm bg-dark"):
-                ui.label("Assistant").classes("text-subtitle2 text-weight-medium text-secondary")
-                ui.html(ui_response).classes("text-body1")
-                ui.label(get_current_time()).classes("text-caption text-weight-light text-grey-6 text-right")
+        # Add to message history
+        message_service.add_message(message, "user", sender_info or "unknown")
 
-    # Add assistant response to history (original format)
-    message_history.add_message("assistant", response)
+        # Create execution context
+        if context is None:
+            context = {}
 
-    # If Telegram response callback is available, send the original response there too
-    if telegram_cb:
-        telegram_cb(response)  # Send original format to Telegram
+        # Add sender info to context if provided
+        if sender_info:
+            context["sender"] = sender_info
 
-    return response
+        # Process the message through the agent
+        response = agent_instance.process(message, context=context)
+
+        # Add response to message history
+        message_service.add_message(response, "assistant", "agent")
+
+        return response
+    except Exception as e:
+        error_msg = f"Error processing message: {str(e)}"
+        logger.error(error_msg)
+        traceback.print_exc()
+        return f"Sorry, I encountered an error: {str(e)}"
 
 
-async def process_queue(
-    message_queue,
-    agent,
-    container,
-    message_history,
-    telegram_cb=None,
-    additional_instructions="",
-):
-    """
-    Process all messages in the queue.
+def main():
+    """Main function to run the assistant."""
+    import time
 
-    Args:
-        message_queue: The queue containing messages to process
-        agent: The agent to process the messages
-        container: The UI container to display messages and responses
-        message_history: The MessageHistory instance to store messages
-        telegram_cb: Optional callback to send responses to Telegram
-    """
-    # Check if there are messages in the queue
-    if not message_queue.empty():
-        # Process all messages in the queue
-        while not message_queue.empty():
-            # Get the next message from the queue
-            message = message_queue.get()
-            # Process the message
-            await process_message(
-                message,
-                agent,
-                container,
-                message_history,
-                telegram_cb,
-                additional_instructions=additional_instructions,
-            )
+    # Create reminder service
+    reminder_service = ReminderService()
 
+    # Set up the NiceGUI web interface
+    ui.colors(primary="#6d28d9")  # Use a nice purple color
 
-async def send_message(
-    message_queue,
-    message,
-    agent,
-    container,
-    message_history,
-    telegram_cb=None,
-    additional_instructions="",
-):
-    """
-    Send a message to the agent via the queue.
+    # Create a dictionary to store UI references
+    ui_refs = {
+        "chat_messages": None,  # Will store the chat messages container
+        "input_box": None,      # Will store the input box
+        "progress_bar": None,   # Will store the progress bar
+    }
 
-    Args:
-        message_queue: The queue to add the message to
-        message: The message to send
-        agent: The agent to process the message
-        container: The UI container to display messages and responses
-        message_history: The MessageHistory instance to store messages
-        telegram_cb: Optional callback to send responses to Telegram
-    """
-    # Store message value and clear input field immediately
-    msg_value = message.strip()
-    
-    # Only process if there's actual content
-    if msg_value:
-        message_queue.put(msg_value)
-        await process_queue(
-            message_queue,
-            agent,
-            container,
-            message_history,
-            telegram_cb,
-            additional_instructions=additional_instructions,
+    # Callback for reminder notifications
+    async def reminder_callback(text, reminder_id):
+        """Handle reminder triggers."""
+        # Get the reminder type from the ID
+        reminder_type = "one-time" if reminder_id.startswith("reminder_") else "recurring"
+        
+        # Create notification text
+        if reminder_type == "one-time":
+            notification_text = f"🔔 Reminder: {text}"
+        else:
+            notification_text = f"🔄 Recurring reminder: {text}"
+        
+        # Create a notification
+        await ui.notify(
+            notification_text,
+            type="info",
+            position="top-right",
+            close_button="OK",
+            timeout=30,
         )
-
-
-# Setup Gmail auth functions
-async def setup_gmail_auth():
-    """Initialize Gmail API authentication for all accounts."""
-    # Get the number of accounts
-    config = ConfigManager().config
-    accounts = config.config.get("gmail", {}).get("accounts", [])
-
-    # Notify user that authentication is starting
-    ui.notify(
-        f"Starting authentication for {len(accounts) + 1} Gmail accounts. "
-        "Check the console for progress.",
-        position="top",
-        color="primary",
-    )
-
-    # Use run.io_bound to prevent blocking the UI
-    result = await run.io_bound(initialize_all_gmail_auth)
-
-    # Display result to user
-    ui.notify(
-        result,
-        position="top",
-        color="positive" if "successful" in result.lower() else "negative",
-    )
-
-
-async def setup_specific_gmail_auth(account_info):
-    """Initialize Gmail API authentication for a specific account."""
-    if not account_info:
-        return
-    print(account_info)
-    account_name, token_path = account_info
-
-    # Use run.io_bound to prevent blocking the UI
-    result = await run.io_bound(
-        initialize_gmail_auth, account_name, token_path,
-    )
-    # Display result to user
-    ui.notify(
-        result,
-        position="top",
-        color="positive" if "successful" in result.lower() else "negative",
-    )
-
-
-async def add_new_gmail_account():
-    """Add a new Gmail account to the configuration."""
-    # Create a dialog to get account details
-    with ui.dialog() as dialog, ui.card():
-        ui.label("Add New Gmail Account").classes("text-h5 text-weight-medium text-primary q-mb-md")
-        ui.label("Enter account details").classes("text-body2 text-weight-regular q-mb-md")
-        name_input = ui.input("Account Name").props('outlined filled')
-
-        async def submit():
-            name = name_input.value
-
-            if not name:
-                ui.notify("Please enter an account name", color="warning")
-                return
-
-            # Use run.io_bound to prevent blocking the UI
-            result = await run.io_bound(add_gmail_account, name)
-            ui.notify(
-                result,
-                position="top",
-                color="positive" if "successful" in result.lower() else "negative",
+        
+        # Also add it to the chat if the chat interface exists
+        if ui_refs["chat_messages"] is not None:
+            ui_refs["chat_messages"].add_message(
+                "assistant", notification_text
             )
-            dialog.close()
 
-        with ui.row().classes("justify-end q-mt-md"):
-            ui.button("Cancel", on_click=dialog.close).classes("text-button")
-            ui.button("Add", on_click=submit).props('color=positive').classes("text-button")
+    # Set the callback for reminders
+    reminder_service.set_callback(reminder_callback)
 
-    dialog.open()
+    # Start the reminder scheduler
+    reminder_service.start_scheduler()
 
+    # Create LLM text processor
+    process_text, summarize_text = process_text_tool()
 
-def main(config: ConfigManager):
-    """Entry point for the assistant with GUI"""
-    # Create a queue for all messages (both user input and reminders)
-    message_queue = queue.Queue()
+    async def format_user_message(content):
+        """Format user messages for display."""
+        return ui.chat_message(
+            content,
+            name="You",
+            avatar="https://robohash.org/user?bgset=bg1",
+        ).classes("items-end")
 
-    # Initialize the message history with max size from config
-    message_history = MessageHistory(
-        max_size=config.config.get("message_history", {}).get("max_size", 20),
-    )
+    async def format_assistant_message(content):
+        """Format assistant messages for display."""
+        return ui.chat_message(
+            content,
+            name="Assistant",
+            avatar="https://robohash.org/assistant?bgset=bg1",
+        ).classes("items-start")
 
-    # Get the database path from config
-    db_path = config.config.get("reminders", {}).get(
-        "db_path", "reminders.sqlite",
-    )
+    async def on_submit_message():
+        """Handle message submission."""
+        nonlocal agent
+        content = ui_refs["input_box"].value
+        ui_refs["input_box"].value = ""
 
-    # If the path is not absolute, make it relative to the config directory
-    if not os.path.isabs(db_path):
-        db_path = os.path.join(config_dir, db_path)
+        # Add user message to the chat
+        await ui_refs["chat_messages"].add_message("user", content)
 
-    # Initialize ReminderService for thread management and persistence
-    reminder_service = ReminderService(
-        db_path=db_path,
-        reminder_queue=message_queue,
-    )
-    reminder_service.start()
-    # Create the agent
-    model = LiteLLMModel(
-        model_id=config.config["model"],
-        api_key=config.config["api_key"],
-    )
+        # Show progress
+        progress = ui.spinner("dots", size="3rem", color="primary")
+        progress.open()
 
-    # Create a closure for summarize_text using the process_text_tool
-    text_processor, summarize_text = process_text_tool(config)
+        try:
+            # Process the message
+            response = await handle_user_message(agent, content)
 
-    # Initialize tools
-    def reminder_callback(msg):
-        message_queue.put(msg)
+            # Add assistant response to the chat
+            await ui_refs["chat_messages"].add_message("assistant", response)
+        except Exception as e:
+            # Add error message to the chat
+            error_msg = f"Sorry, I encountered an error: {str(e)}"
+            await ui_refs["chat_messages"].add_message("assistant", error_msg)
+        finally:
+            # Hide progress
+            progress.close()
 
+    # Create the UI
+    @ui.page("/")
+    async def home():
+        """Create the home page UI."""
+        # Access the ui_refs from the outer scope
+        nonlocal ui_refs
+
+        with ui.column().classes("w-full max-w-3xl mx-auto p-4 gap-4"):
+            ui.label("SmolAssistant").classes("text-2xl font-bold text-center")
+
+            # Create chat messages container
+            chat_messages = ui.chat().classes("w-full h-96 overflow-auto")
+            ui_refs["chat_messages"] = chat_messages
+
+            # Create the input layout
+            with ui.row().classes("w-full"):
+                input_box = ui.input(placeholder="Type your message here...")
+                input_box.classes("flex-grow mr-2")
+                input_box.on("keydown.enter", on_submit_message)
+                ui_refs["input_box"] = input_box
+
+                ui.button("Send", on_click=on_submit_message).classes("bg-primary")
+
+            # Add a welcome message
+            await chat_messages.add_message(
+                "assistant", "Hello! I'm SmolAssistant. How can I help you today?"
+            )
+
+    # Try to start the Telegram bot if configured
+    if "telegram" in config and "bot_token" in config["telegram"]:
+        try:
+            # Create the bot
+            bot = create_telegram_bot(config["telegram"]["bot_token"])
+
+            # Define message handler
+            @bot.message_handler(content_types=["text"])
+            async def handle_telegram_message(message):
+                """Handle Telegram messages."""
+                nonlocal agent
+                try:
+                    user_id = message.from_user.id
+                    username = message.from_user.username or str(user_id)
+                    chat_id = message.chat.id
+                    message_text = message.text
+
+                    sender_info = f"telegram:{username}"
+
+                    # Process the message
+                    response = await handle_user_message(
+                        agent, message_text, sender_info=sender_info
+                    )
+
+                    # Send response back to Telegram
+                    # Split long messages if needed (Telegram has a 4096 character limit)
+                    max_length = 4000
+                    for i in range(0, len(response), max_length):
+                        chunk = response[i:i + max_length]
+                        try:
+                            await bot.send_message(chat_id, chunk)
+                        except Exception as e:
+                            print(f"Error sending Telegram message: {str(e)}")
+                except Exception as e:
+                    error_msg = f"Error processing Telegram message: {str(e)}"
+                    print(error_msg)
+                    traceback.print_exc()
+                    try:
+                        await bot.send_message(
+                            message.chat.id, f"Sorry, I encountered an error: {str(e)}"
+                        )
+                    except Exception:
+                        pass
+
+            # Start the bot in a background thread
+            run_telegram_bot(bot)
+            print("Telegram bot started")
+        except Exception as e:
+            print(f"Failed to start Telegram bot: {str(e)}")
+
+    # Get the model configuration
+    model_config = config.get("model", {})
+    model_name = model_config.get("name", "gpt-3.5-turbo")
+    api_key = model_config.get("api_key", None)
+    base_url = model_config.get("base_url", None)
+
+    # Configure litellm
+    if api_key:
+        os.environ["OPENAI_API_KEY"] = api_key
+    if base_url:
+        os.environ["OPENAI_API_BASE"] = base_url
+
+    # Set up the model
+    model = {"model": model_name}
+
+    # Create tools list
     tools = [
         DuckDuckGoSearchTool(),
         # Replace VisitWebpageTool with our summarizing version
@@ -302,7 +668,10 @@ def main(config: ConfigManager):
         # Pass the summarize function to our email tools
         get_unread_emails_tool(summarize_func=summarize_text),
         search_emails_tool(summarize_func=summarize_text),
-        get_message_history_tool(message_history),
+        # Add calendar tools
+        get_upcoming_events_tool(summarize_func=summarize_text),
+        search_calendar_events_tool(summarize_func=summarize_text),
+        get_message_history_tool(message_service),
     ]
     # Create agent
     agent = CodeAgent(
@@ -311,175 +680,13 @@ def main(config: ConfigManager):
         planning_interval=3,
     )
 
-    # Add additional system prompt text if provided in config
-    if config.config.get("additional_system_prompt"):
-        agent.prompt_templates["system_prompt"] = (
-            agent.prompt_templates["system_prompt"]
-            + "\n"
-            + config.config["additional_system_prompt"]
-        )
-
-    # Check if Telegram is enabled
-    telegram_enabled = config.config.get("telegram", {}).get("enabled", False)
-    telegram_token = config.config.get("telegram", {}).get("token", "")
-    authorized_user_id = config.config.get("telegram", {}).get(
-        "authorized_user_id",
-    )
-
-    # Initialize and start Telegram bot if enabled
-    telegram_cb = None
-    if telegram_enabled and telegram_token:
-        print("Telegram bot is enabled.")
-
-        # Create the bot with access to the message queue
-        bot, telegram_cb = create_telegram_bot(
-            message_queue=message_queue,
-            token=telegram_token,
-            config=config,
-            authorized_user_id=authorized_user_id,
-        )
-
-        # Start the bot in a background thread
-        run_telegram_bot(bot)
-
-    # Create the UI with dark theme
-    ui.dark_mode().enable()
-
-    # Add custom CSS for styling consistency
-    ui.add_head_html("""
-    <style>
-    :root {
-        --background-dark: #121212;
-        --card-dark: #1E1E1E;
-        --primary-color: #1976D2;
-        --secondary-color: #26A69A;
-        --accent-color: #9C27B0;
-    }
-    .scroll-area-with-thumb::-webkit-scrollbar {
-        width: 8px;
-    }
-    .scroll-area-with-thumb::-webkit-scrollbar-thumb {
-        background: #666;
-        border-radius: 4px;
-    }
-    .bg-primary-2 {
-        background-color: rgba(25, 118, 210, 0.2);
-    }
-    </style>
-    """)
-
-    # Apply standard CSS styles to ensure proper element containment
-    ui.query('.nicegui-content').classes('h-screen p-0')
-    
-    # Main layout container with fixed width sidebar and chat area
-    with ui.row().classes('w-full h-screen no-wrap p-0 m-0'):
-        # Left sidebar - fixed width with Gmail setup and future config options
-        with ui.column().classes('w-1/4 h-full').style('min-width: 300px; max-width: 300px; background-color: var(--card-dark)'):
-            with ui.card().props('flat bordered').classes("w-full h-full q-pa-md"):
-                ui.label("Gmail Accounts").classes("text-h5 text-weight-medium text-primary q-mb-md")
-                
-                # Setup All button with Quasar styling
-                ui.button(
-                    "Setup All Gmail Accounts", 
-                    on_click=setup_gmail_auth
-                ).props('color=primary full-width unelevated').classes("text-button q-mb-md")
-                
-                # Account selection
-                accounts = config.config.get("gmail", {}).get("accounts", [])
-                account_options = {}
-                
-                for account in accounts:
-                    name = account.get("name", "unnamed")
-                    token_path = os.path.join(
-                        config_dir, account.get("token_path"),
-                    )
-                    account_options[(name, token_path)] = name
-                
-                if account_options:
-                    ui.label("Account Selection").classes("text-subtitle2 text-weight-medium q-mt-sm q-mb-xs")
-                    ui.select(
-                        options=account_options,
-                        label="Select account to setup",
-                        on_change=lambda e: setup_specific_gmail_auth(e.value),
-                    ).props('outlined filled bg-dark').classes("w-full q-mb-md")
-                
-                ui.separator().props('dark spaced')
-                
-                # Add New Account button with improved styling
-                ui.button(
-                    "Add New Gmail Account", 
-                    on_click=add_new_gmail_account
-                ).props('color=positive full-width unelevated').classes("text-button q-mt-md")
-                
-                # Reserved space for future configuration UI
-                with ui.expansion("Future Configuration").classes("q-mt-xl w-full"):
-                    ui.label("Configuration Options").classes("text-subtitle1 text-weight-regular")
-                    ui.label("Space reserved for future configuration options").classes("text-body2 text-weight-light text-grey-6")
-        
-        # Main chat area - takes remaining width
-        with ui.column().classes('w-3/4 h-full p-4'):
-            # Container for chat messages with improved styling
-            ui.label("Chat").classes("text-h4 text-weight-regular text-primary q-mb-md")
-            
-            chat_message_container = ui.scroll_area().classes(
-                "w-full h-5/6 bg-grey-9 rounded-lg p-4 scroll-area-with-thumb"
-            ).props('dark')
-            
-            # Input area with enhanced styling
-            with ui.card().props('flat bordered').classes("w-full q-mt-md q-pa-sm"):
-                # ui.label("Message").classes("text-caption text-weight-regular q-mb-xs text-grey-6")
-                with ui.row().classes("w-full items-end justify-between"):
-                    input_field = ui.textarea(
-                        placeholder="Type your message...",
-                    ).props('outlined filled autogrow hide-bottom-space').classes("flex-grow text-body1")
-                    
-                    send_button = ui.button(icon="send").props('round color=primary').classes("q-ml-sm self-center")
-    # Define function to handle message sending and clear the input
-    async def handle_send():
-        message = input_field.value
-        if message.strip():
-            # Clear the input field immediately
-            current_message = message
-            input_field.value = ""
-            # Send the message
-            await send_message(
-                message_queue,
-                current_message,
-                agent,
-                chat_message_container,
-                message_history,
-                telegram_cb,
-                additional_instructions=config.config["additional_instructions"],
-            )
-
-    # Event handler for input field and send button
-    input_field.on("keydown.enter", handle_send)
-    send_button.on("click", handle_send)
-
-    # Process queue timer
-    ui.timer(
-        1.0,
-        lambda: process_queue(
-            message_queue,
-            agent,
-            chat_message_container,
-            message_history,
-            telegram_cb,
-            additional_instructions=config.config["additional_instructions"],
-        ),
-    )
-
     # Start the UI
     ui.run(
         title="SmolAssistant",
         favicon="🤖",
-        reload=False,
+        storage_secret="smolassistant_secret_key",
     )
 
 
-if __name__ in {"__main__", "__mp_main__", "smolassistant.__main__"}:
-    try:
-        config = ConfigManager()
-        main(config)
-    except Exception as e:
-        print(f"Fatal error: {e!s}")
+if __name__ == "__main__":
+    main()
