@@ -9,12 +9,13 @@ from .google import (
     # Gmail tools
     get_unread_emails_tool,
     search_emails_tool,
-    initialize_gmail_auth,
     
     # Calendar tools
     get_upcoming_events_tool,
     search_calendar_events_tool,
-    initialize_calendar_auth,
+    
+    # Auth functions
+    initialize_google_auth,
 )
 from .telegram import (
     create_telegram_bot,
@@ -33,10 +34,9 @@ __all__ = [
     'cancel_reminder_tool',
     'get_unread_emails_tool',
     'search_emails_tool',
-    'initialize_gmail_auth',
     'get_upcoming_events_tool',
     'search_calendar_events_tool',
-    'initialize_calendar_auth',
+    'initialize_google_auth',
     'create_telegram_bot',
     'run_telegram_bot',
     'process_text_tool',

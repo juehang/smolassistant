@@ -6,7 +6,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from smolagents import tool
 
-from .auth import get_credentials, GMAIL_SCOPES
+from .auth import get_credentials, GOOGLE_SCOPES
 
 
 def calculate_date_range(days):
@@ -235,7 +235,7 @@ def get_unread_emails_tool(summarize_func: Optional[Callable] = None):
         """
         try:
             # Get credentials for all accounts
-            all_creds = get_credentials(GMAIL_SCOPES)
+            all_creds = get_credentials()
 
             services_with_messages = []
 
@@ -282,8 +282,8 @@ def get_unread_emails_tool(summarize_func: Optional[Callable] = None):
         except Exception as e:
             if "authentication not set up" in str(e):
                 return (
-                    "Gmail API authentication not set up. "
-                    "Please use the initialize_gmail_auth function first."
+                    "Google API authentication not set up. "
+                    "Please use the initialize_google_auth function first."
                 )
             return f"Error fetching unread emails: {str(e)}"
 
@@ -313,7 +313,7 @@ def search_emails_tool(summarize_func: Optional[Callable] = None):
         """
         try:
             # Get credentials for all accounts
-            all_creds = get_credentials(GMAIL_SCOPES)
+            all_creds = get_credentials()
 
             services_with_messages = []
 
@@ -354,8 +354,8 @@ def search_emails_tool(summarize_func: Optional[Callable] = None):
         except Exception as e:
             if "authentication not set up" in str(e):
                 return (
-                    "Gmail API authentication not set up. "
-                    "Please use the initialize_gmail_auth function first."
+                    "Google API authentication not set up. "
+                    "Please use the initialize_google_auth function first."
                 )
             return f"Error searching emails: {str(e)}"
 

@@ -5,7 +5,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from smolagents import tool
 
-from .auth import get_credentials, CALENDAR_SCOPES
+from .auth import get_credentials, GOOGLE_SCOPES
 
 
 def format_calendar_results(services_with_events: List[Tuple]):
@@ -170,8 +170,8 @@ def get_upcoming_events_tool(summarize_func: Optional[Callable] = None):
             Formatted string with upcoming events
         """
         try:
-            # Get credentials for Calendar API
-            all_creds = get_credentials(CALENDAR_SCOPES)
+            # Get credentials for Google API
+            all_creds = get_credentials()
 
             services_with_events = []
 
@@ -255,8 +255,8 @@ def get_upcoming_events_tool(summarize_func: Optional[Callable] = None):
         except Exception as e:
             if "authentication not set up" in str(e):
                 return (
-                    "Google Calendar API authentication not set up. "
-                    "Please use the initialize_calendar_auth function first."
+                    "Google API authentication not set up. "
+                    "Please use the initialize_google_auth function first."
                 )
             return f"Error fetching calendar events: {str(e)}"
 
@@ -291,8 +291,8 @@ def search_calendar_events_tool(summarize_func: Optional[Callable] = None):
             Formatted string with matching events
         """
         try:
-            # Get credentials for Calendar API
-            all_creds = get_credentials(CALENDAR_SCOPES)
+            # Get credentials for Google API
+            all_creds = get_credentials()
 
             services_with_events = []
 
@@ -392,8 +392,8 @@ def search_calendar_events_tool(summarize_func: Optional[Callable] = None):
         except Exception as e:
             if "authentication not set up" in str(e):
                 return (
-                    "Google Calendar API authentication not set up. "
-                    "Please use the initialize_calendar_auth function first."
+                    "Google API authentication not set up. "
+                    "Please use the initialize_google_auth function first."
                 )
             return f"Error searching calendar events: {str(e)}"
 

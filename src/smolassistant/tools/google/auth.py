@@ -5,9 +5,11 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 
 from ...config import ConfigManager, config_dir
 
-# Define scopes for different Google services
-GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
-CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
+# Define combined scopes for Google services
+GOOGLE_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/calendar.readonly"
+]
 
 
 def get_credentials_path():
@@ -56,12 +58,9 @@ def get_token_paths():
     return paths
 
 
-def get_credentials(scopes=None):
+def get_credentials():
     """
     Get and refresh OAuth credentials for all configured accounts.
-    
-    Args:
-        scopes: List of OAuth scopes to request, defaults to GMAIL_SCOPES if None
     
     Returns:
         List of valid OAuth credentials
@@ -69,9 +68,6 @@ def get_credentials(scopes=None):
     Raises:
         Exception: If no valid credentials are found
     """
-    if scopes is None:
-        scopes = GMAIL_SCOPES
-        
     all_creds = []
     token_paths = get_token_paths()
     
@@ -82,7 +78,7 @@ def get_credentials(scopes=None):
         if os.path.exists(token_path):
             try:
                 creds = Credentials.from_authorized_user_file(
-                    token_path, scopes
+                    token_path, GOOGLE_SCOPES
                 )
                 
                 # If credentials are expired but can be refreshed
@@ -110,22 +106,18 @@ def get_credentials(scopes=None):
     return all_creds
 
 
-def initialize_google_auth(account_name=None, token_path=None, scopes=None):
+def initialize_google_auth(account_name=None, token_path=None):
     """
-    Initialize the Google API authentication flow.
+    Initialize the Google API authentication flow for both Gmail and Calendar.
     
     Args:
         account_name: Name of the account to initialize
         token_path: Path to save the token (optional, will be generated from
                    account_name if not provided)
-        scopes: List of OAuth scopes to request, defaults to GMAIL_SCOPES if None
         
     Returns:
         A message indicating the result of the authentication process
     """
-    if scopes is None:
-        scopes = GMAIL_SCOPES
-        
     try:
         cred_path = get_credentials_path()
         
@@ -165,17 +157,11 @@ def initialize_google_auth(account_name=None, token_path=None, scopes=None):
         if os.path.exists(token_path):
             try:
                 creds = Credentials.from_authorized_user_file(
-                    token_path, scopes
+                    token_path, GOOGLE_SCOPES
                 )
                 if creds and creds.valid:
-                    service_names = []
-                    if 'gmail.readonly' in ' '.join(scopes):
-                        service_names.append('Gmail')
-                    if 'calendar.readonly' in ' '.join(scopes):
-                        service_names.append('Calendar')
-                    service_str = ' and '.join(service_names)
                     return (
-                        f"Google {service_str} API authentication for {account_name} "
+                        f"Google Gmail and Calendar API authentication for {account_name} "
                         "is already set up."
                     )
             except Exception:
@@ -184,7 +170,7 @@ def initialize_google_auth(account_name=None, token_path=None, scopes=None):
                 pass
         
         # If no valid token exists, start the auth flow
-        flow = InstalledAppFlow.from_client_secrets_file(cred_path, scopes)
+        flow = InstalledAppFlow.from_client_secrets_file(cred_path, GOOGLE_SCOPES)
         creds = flow.run_local_server(port=0)
         
         # Save the credentials for the next run
@@ -192,33 +178,21 @@ def initialize_google_auth(account_name=None, token_path=None, scopes=None):
         with open(token_path, "w") as token:
             token.write(creds.to_json())
         
-        service_names = []
-        if 'gmail.readonly' in ' '.join(scopes):
-            service_names.append('Gmail')
-        if 'calendar.readonly' in ' '.join(scopes):
-            service_names.append('Calendar')
-        service_str = ' and '.join(service_names)
         return (
-            f"Google {service_str} API authentication for {account_name} "
+            f"Google Gmail and Calendar API authentication for {account_name} "
             "has been successfully set up."
         )
     except Exception as e:
         return f"Error setting up Google API authentication: {str(e)}"
 
 
-def initialize_all_google_auth(scopes=None):
+def initialize_all_google_auth():
     """
-    Initialize all Google accounts.
+    Initialize all Google accounts for Gmail and Calendar.
     
-    Args:
-        scopes: List of OAuth scopes to request, defaults to GMAIL_SCOPES if None
-        
     Returns:
         A message indicating the result of the authentication process
     """
-    if scopes is None:
-        scopes = GMAIL_SCOPES + CALENDAR_SCOPES
-        
     token_paths = get_token_paths()
     
     if not token_paths:
@@ -228,27 +202,20 @@ def initialize_all_google_auth(scopes=None):
             "Please add accounts to your config file."
         )
     
-    service_names = []
-    if any('gmail.readonly' in scope for scope in scopes):
-        service_names.append('Gmail')
-    if any('calendar.readonly' in scope for scope in scopes):
-        service_names.append('Calendar')
-    service_str = ' and '.join(service_names)
-    
     print(
-        f"Starting {service_str} authentication process for {len(token_paths)} "
+        f"Starting Gmail and Calendar authentication process for {len(token_paths)} "
         f"Google accounts:"
     )
     for i, (account_name, _) in enumerate(token_paths, 1):
         print(f"  {i}. {account_name}")
     
-    results = [f"Starting {service_str} authentication process for all accounts:"]
+    results = ["Starting Gmail and Calendar authentication process for all accounts:"]
     
     # Initialize all accounts
     for i, (account_name, token_path) in enumerate(token_paths, 1):
         results.append(
             f"Account {i} of {len(token_paths)} ({account_name}): "
-            f"{initialize_google_auth(account_name, token_path, scopes)}"
+            f"{initialize_google_auth(account_name, token_path)}"
         )
     
     return "\n".join(results)
@@ -299,52 +266,3 @@ def add_google_account(name):
         return f"Added new Google account '{name}' to configuration."
     except Exception as e:
         return f"Error adding Google account: {str(e)}"
-
-
-# Add functions to initialize Gmail, Calendar, or both
-def initialize_gmail_auth(account_name=None, token_path=None):
-    """
-    Initialize the Gmail API authentication flow.
-    
-    Args:
-        account_name: Name of the account to initialize
-        token_path: Path to save the token (optional)
-        
-    Returns:
-        Result message from initialize_google_auth
-    """
-    return initialize_google_auth(account_name, token_path, GMAIL_SCOPES)
-
-
-def initialize_calendar_auth(account_name=None, token_path=None):
-    """
-    Initialize the Calendar API authentication flow.
-    
-    Args:
-        account_name: Name of the account to initialize
-        token_path: Path to save the token (optional)
-        
-    Returns:
-        Result message from initialize_google_auth
-    """
-    return initialize_google_auth(account_name, token_path, CALENDAR_SCOPES)
-
-
-def initialize_all_gmail_auth():
-    """
-    Initialize Gmail API for all accounts.
-    
-    Returns:
-        Result message from initialize_all_google_auth
-    """
-    return initialize_all_google_auth(GMAIL_SCOPES)
-
-
-def initialize_all_calendar_auth():
-    """
-    Initialize Calendar API for all accounts.
-    
-    Returns:
-        Result message from initialize_all_google_auth
-    """
-    return initialize_all_google_auth(CALENDAR_SCOPES)
