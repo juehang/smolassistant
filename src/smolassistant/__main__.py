@@ -320,10 +320,13 @@ def main(config: ConfigManager):
 
     # Add additional system prompt text if provided in config
     if config.config.get("additional_system_prompt"):
+        # Process the template to replace placeholders with actual values
+        processed_prompt = config.process_template(config.config["additional_system_prompt"])
+        
         agent.prompt_templates["system_prompt"] = (
             agent.prompt_templates["system_prompt"]
             + "\n"
-            + config.config["additional_system_prompt"]
+            + processed_prompt
         )
 
     # Check if Telegram is enabled

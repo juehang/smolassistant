@@ -38,7 +38,12 @@ DEFAULTS = {
         "please use your coding capabilities to find it.\n"
         "If you require additional context about earlier conversations, "
         "please use the message history tool to retrieve it.\n"
+        "The user is located in {user_location} (timezone: {user_timezone}).\n"
     ),  # Custom text to add to the system prompt
+    "user": {
+        "location": "Houston, TX",
+        "timezone": "America/Chicago",
+    },
     "reminders": {"db_path": "reminders.sqlite"},
     "gmail": {"credentials_path": "credentials.json", "accounts": []},
     "telegram": {
@@ -83,6 +88,27 @@ class ConfigManager:
     def save(self):
         with open(config_file, "wb") as f:
             tomli_w.dump(self.config, f)
+            
+    def process_template(self, template_str):
+        """
+        Process a template string, replacing placeholders with values from the config.
+        
+        Args:
+            template_str (str): The template string with placeholders.
+            
+        Returns:
+            str: The processed string with placeholders replaced by config values.
+        """
+        result = template_str
+        
+        # Replace user-related placeholders
+        if '{user_location}' in result and 'user' in self.config and 'location' in self.config['user']:
+            result = result.replace('{user_location}', self.config['user']['location'])
+            
+        if '{user_timezone}' in result and 'user' in self.config and 'timezone' in self.config['user']:
+            result = result.replace('{user_timezone}', self.config['user']['timezone'])
+            
+        return result
 
     def ensure_defaults(self):
         """

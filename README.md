@@ -28,9 +28,10 @@ SmolAssistant can be configured through a TOML configuration file located at:
 | api_key | API key for the LLM provider | "" |
 | additional_instructions | Instructions appended to each user message | *Formatting instructions for HTML tags and general guidelines that need strict adherence* |
 | additional_system_prompt | Custom text added to the system prompt | *Default instructions about being friendly, expressing confidence levels, and date/time handling* |
+| user.location | User's physical location | "Houston, TX" |
+| user.timezone | User's timezone in IANA format | "America/Chicago" |
 | text_processor.model | Model to use for summarization | "anthropic/claude-3-haiku-20240307" |
 | text_processor.summary_prompt | Prompt for summarization | *Default instructions for summarizing with key information preservation* |
-
 ### Customizing the System Prompt
 
 The `additional_system_prompt` allows you to add custom instructions to the assistant's system prompt. The default setting includes:
@@ -71,8 +72,46 @@ For attachments, mention types but not full filenames.
 """
 ```
 
+### User Location and Timezone Configuration
+
+The assistant can be configured with your location and timezone information, which helps it provide more contextually relevant responses. This is configured in the `user` section:
+
+```toml
+[user]
+location = "Houston, TX"
+timezone = "America/Chicago"
+```
+
+This information is automatically added to the system prompt through a template mechanism. The `additional_system_prompt` field contains placeholders that are replaced with your actual location and timezone values:
+
+```toml
+additional_system_prompt = """
+...existing prompt content...
+The user is located in {user_location} (timezone: {user_timezone}).
+"""
+```
+
+You can customize both the location and timezone to your preferences.
+
+## Google Calendar Integration
+
+SmolAssistant includes tools for accessing and searching Google Calendar events:
+
+- **get_upcoming_events**: Retrieves events for a specified number of days
+- **search_calendar_events**: Searches for events matching specific criteria
+
+### Timezone Display
+
+The Calendar integration displays timezone information for events, helping you better understand when events occur. For example:
+
+- Timed events show their associated timezone: "7:30 PM-8:30 PM (tzfile('UTC'))"
+- All-day events display as "All day" without timezone information
+
+This feature ensures you have accurate time context for your calendar events, especially when dealing with events across different timezones.
+
 ## Reminder Functionality
 
+SmolAssistant supports both one-time and recurring reminders. You can ask the assistant to:
 SmolAssistant supports both one-time and recurring reminders. You can ask the assistant to:
 
 - Set reminders for specific dates and times

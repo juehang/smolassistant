@@ -83,9 +83,15 @@ def format_calendar_results(services_with_events: List[Tuple]):
             # Format the event time
             if event["is_all_day"]:
                 time_str = "All day"
+                # All-day events don't need timezone information
             else:
                 # Format the time
                 start_time = event["start_dt"].strftime("%I:%M %p").lstrip("0")
+                
+                # Simply get the timezone string directly from the timestamp
+                timezone_info = None
+                if hasattr(event["start_dt"], "tzinfo") and event["start_dt"].tzinfo is not None:
+                    timezone_info = str(event["start_dt"].tzinfo)
 
                 # Get end time if available
                 if "end" in event:
@@ -100,10 +106,13 @@ def format_calendar_results(services_with_events: List[Tuple]):
                         time_str = start_time
                 else:
                     time_str = start_time
+                
+                # Add timezone information if available
+                if timezone_info:
+                    time_str += f" ({timezone_info})"
 
             # Get summary (title)
             summary = event.get("summary", "Untitled Event")
-
             # Add location if available (but keep it brief)
             location = (
                 event.get("location", "").split(",")[0]
@@ -175,16 +184,14 @@ def get_upcoming_events_tool(summarize_func: Optional[Callable] = None):
 
             services_with_events = []
 
-            # Get current time in UTC
-            now = (
-                datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z"
-            )
+            # Get current time in UTC - Fix: remove the + "Z" suffix
+            now = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-            # Calculate end time
+            # Calculate end time - Fix: remove the + "Z" suffix
             end_time = (
                 datetime.datetime.now(datetime.timezone.utc)
                 + datetime.timedelta(days=days)
-            ).isoformat() + "Z"
+            ).isoformat()
 
             # Process each account
             for idx, creds in enumerate(all_creds):
@@ -204,26 +211,33 @@ def get_upcoming_events_tool(summarize_func: Optional[Callable] = None):
                         if calendar.get("selected", True) is False:
                             continue
 
-                        events_result = (
-                            service.events()
-                            .list(
-                                calendarId=cal_id,
-                                timeMin=now,
-                                timeMax=end_time,
-                                maxResults=max_results,
-                                singleEvents=True,
-                                orderBy="startTime",
+                        try:
+                            # Add better error handling for each calendar
+                            events_result = (
+                                service.events()
+                                .list(
+                                    calendarId=cal_id,
+                                    timeMin=now,
+                                    timeMax=end_time,
+                                    maxResults=max_results,
+                                    singleEvents=True,
+                                    orderBy="startTime",
+                                )
+                                .execute()
                             )
-                            .execute()
-                        )
 
-                        events = events_result.get("items", [])
-                        for event in events:
-                            # Add calendar info to each event
-                            event["calendarTitle"] = calendar.get(
-                                "summary", "Unknown Calendar"
-                            )
-                            all_events.append(event)
+                            events = events_result.get("items", [])
+                            for event in events:
+                                # Add calendar info to each event
+                                event["calendarTitle"] = calendar.get(
+                                    "summary", "Unknown Calendar"
+                                )
+                                all_events.append(event)
+                        except HttpError as error:
+                            # Handle calendar-specific errors more gracefully
+                            print(f"Error accessing calendar {calendar.get('summary', 'Unknown')}: {str(error)}")
+                            # Continue with other calendars rather than stopping
+                            continue
 
                     # Sort all events by start time
                     all_events.sort(
@@ -296,16 +310,14 @@ def search_calendar_events_tool(summarize_func: Optional[Callable] = None):
 
             services_with_events = []
 
-            # Get current time in UTC
-            now = (
-                datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z"
-            )
+            # Get current time in UTC - Fix: remove the + "Z" suffix
+            now = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-            # Calculate end time
+            # Calculate end time - Fix: remove the + "Z" suffix
             end_time = (
                 datetime.datetime.now(datetime.timezone.utc)
                 + datetime.timedelta(days=days)
-            ).isoformat() + "Z"
+            ).isoformat()
 
             # Process each account
             for idx, creds in enumerate(all_creds):
@@ -325,42 +337,49 @@ def search_calendar_events_tool(summarize_func: Optional[Callable] = None):
                         if calendar.get("selected", True) is False:
                             continue
 
-                        # Get all events, then filter by query
-                        events_result = (
-                            service.events()
-                            .list(
-                                calendarId=cal_id,
-                                timeMin=now,
-                                timeMax=end_time,
-                                maxResults=max_results
-                                * 2,  # Get more to allow for filtering
-                                singleEvents=True,
-                                orderBy="startTime",
-                            )
-                            .execute()
-                        )
-
-                        events = events_result.get("items", [])
-
-                        # Filter events by query text
-                        filtered_events = []
-                        for event in events:
-                            summary = event.get("summary", "").lower()
-                            description = event.get("description", "").lower()
-                            location = event.get("location", "").lower()
-
-                            if (
-                                query.lower() in summary
-                                or query.lower() in description
-                                or query.lower() in location
-                            ):
-                                # Add calendar info to event
-                                event["calendarTitle"] = calendar.get(
-                                    "summary", "Unknown Calendar"
+                        try:
+                            # Add better error handling for each calendar
+                            # Get all events, then filter by query
+                            events_result = (
+                                service.events()
+                                .list(
+                                    calendarId=cal_id,
+                                    timeMin=now,
+                                    timeMax=end_time,
+                                    maxResults=max_results
+                                    * 2,  # Get more to allow for filtering
+                                    singleEvents=True,
+                                    orderBy="startTime",
                                 )
-                                filtered_events.append(event)
+                                .execute()
+                            )
 
-                        all_events.extend(filtered_events)
+                            events = events_result.get("items", [])
+
+                            # Filter events by query text
+                            filtered_events = []
+                            for event in events:
+                                summary = event.get("summary", "").lower()
+                                description = event.get("description", "").lower()
+                                location = event.get("location", "").lower()
+
+                                if (
+                                    query.lower() in summary
+                                    or query.lower() in description
+                                    or query.lower() in location
+                                ):
+                                    # Add calendar info to event
+                                    event["calendarTitle"] = calendar.get(
+                                        "summary", "Unknown Calendar"
+                                    )
+                                    filtered_events.append(event)
+
+                            all_events.extend(filtered_events)
+                        except HttpError as error:
+                            # Handle calendar-specific errors more gracefully
+                            print(f"Error accessing calendar {calendar.get('summary', 'Unknown')}: {str(error)}")
+                            # Continue with other calendars rather than stopping
+                            continue
 
                     # Sort all events by start time
                     all_events.sort(
