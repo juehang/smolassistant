@@ -11,6 +11,7 @@ DEFAULTS = {
     "model": "anthropic/claude-3-7-sonnet-latest",
     "api_key": "",
     "additional_instructions": (
+        "\nReminders:"
         "\nPlease use HTML to format your final answer. "
         "Only the following HTML tags are supported: "
         "<b>bold</b>, <i>italic</i>, <code>code</code>, "
@@ -39,6 +40,8 @@ DEFAULTS = {
         "If you require additional context about earlier conversations, "
         "please use the message history tool to retrieve it.\n"
         "The user is located in {user_location} (timezone: {user_timezone}).\n"
+        "Please use this information to provide times and dates in the "
+        "user's local timezone.\n"
     ),  # Custom text to add to the system prompt
     "user": {
         "location": "Houston, TX",
