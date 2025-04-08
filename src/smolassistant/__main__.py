@@ -5,6 +5,8 @@ from datetime import datetime
 
 from nicegui import run, ui
 from smolagents import CodeAgent, DuckDuckGoSearchTool, LiteLLMModel
+from phoenix.otel import register
+from openinference.instrumentation.smolagents import SmolagentsInstrumentor
 
 # Removed unused imports since we're not displaying memory steps for now
 from .config import ConfigManager, config_dir
@@ -280,6 +282,12 @@ def main(config: ConfigManager):
         reminder_queue=message_queue,
     )
     reminder_service.start()
+    
+    # Initialize telemetry if enabled
+    if config.config.get("telemetry", {}).get("enabled", True):
+        register()
+        SmolagentsInstrumentor().instrument()
+    
     # Create the agent
     model = LiteLLMModel(
         model_id=config.config["model"],
@@ -423,6 +431,19 @@ def main(config: ConfigManager):
                     "Add New Google Account", 
                     on_click=add_new_gmail_account
                 ).props('color=positive full-width unelevated').classes("text-button q-mt-md")
+                
+                # Telemetry section
+                ui.separator().props('dark spaced')
+                
+                # Telemetry button
+                telemetry_button = ui.button(
+                    "Open Telemetry Dashboard", 
+                    on_click=lambda: ui.navigate.to("http://0.0.0.0:6006", new_tab=True)
+                ).props('color=secondary full-width unelevated').classes("text-button q-mb-md")
+
+                # Disable button if telemetry is not enabled
+                if not config.config.get("telemetry", {}).get("enabled", True):
+                    telemetry_button.props('disabled')
                 
                 # Reserved space for future configuration UI
                 with ui.expansion("Future Configuration").classes("q-mt-xl w-full"):

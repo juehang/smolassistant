@@ -65,6 +65,9 @@ DEFAULTS = {
             "For attachments, mention types but not full filenames."
         ),
     },
+    "telemetry": {
+        "enabled": True,
+    },
 }
 
 

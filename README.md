@@ -11,6 +11,7 @@ An agentic AI assistant based on the smolagents library.
 - Reminder functionality (one-time and recurring)
 - Gmail integration with automatic summarization
 - Telegram bot support
+- Telemetry integration using OpenTelemetry and Phoenix
 
 ## Configuration
 
@@ -32,6 +33,28 @@ SmolAssistant can be configured through a TOML configuration file located at:
 | user.timezone | User's timezone in IANA format | "America/Chicago" |
 | text_processor.model | Model to use for summarization | "anthropic/claude-3-haiku-20240307" |
 | text_processor.summary_prompt | Prompt for summarization | *Default instructions for summarizing with key information preservation* |
+| telemetry.enabled | Enable/disable telemetry | true |
+
+### Telemetry Integration
+
+SmolAssistant includes telemetry integration using OpenTelemetry and Phoenix. This feature allows you to:
+
+- Monitor and debug agent runs
+- Analyze the steps and decisions made by the agent
+- Visualize the agent's workflow
+
+To access the telemetry dashboard, click the "Open Telemetry Dashboard" button in the sidebar. This will open Phoenix at `http://0.0.0.0:6006` where you can inspect your agent runs. Note that Phoenix needs to be run separately, via
+```
+python -m phoenix.server.main serve
+```
+
+You can enable or disable telemetry in the configuration file:
+
+```toml
+[telemetry]
+enabled = true  # Set to false to disable telemetry
+```
+
 ### Customizing the System Prompt
 
 The `additional_system_prompt` allows you to add custom instructions to the assistant's system prompt. The default setting includes:
