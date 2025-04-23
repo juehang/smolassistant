@@ -261,7 +261,7 @@ class ReminderService:
 
         # Define the job function
         def reminder_job(
-            message=None, interval=None, time_spec=None,
+            message=None, interval=None, time_spec=None, reminder_id=None,  # noqa: ARG001
         ):
             if time_spec:
                 formatted_message = (
