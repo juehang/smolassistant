@@ -1,23 +1,22 @@
 import os
 import queue
-import re
 from datetime import datetime
 
 from nicegui import run, ui
-from smolagents import CodeAgent, DuckDuckGoSearchTool, LiteLLMModel
-from phoenix.otel import register
 from openinference.instrumentation.smolagents import SmolagentsInstrumentor
+from phoenix.otel import register
+from smolagents import CodeAgent, DuckDuckGoSearchTool, LiteLLMModel
 
 # Removed unused imports since we're not displaying memory steps for now
 from .config import ConfigManager, config_dir
 from .tools.google import (
     add_google_account,
     get_unread_emails_tool,
+    get_upcoming_events_tool,
     initialize_all_google_auth,
     initialize_google_auth,
-    search_emails_tool,
-    get_upcoming_events_tool,
     search_calendar_events_tool,
+    search_emails_tool,
 )
 from .tools.llm_text_processor import (
     SummarizingVisitWebpageTool,

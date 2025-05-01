@@ -1,5 +1,8 @@
 import threading
+
 import telebot
+
+from .html_sanitizer import sanitize_telegram_html
 
 
 def create_telegram_bot(message_queue, token, config, authorized_user_id=None):
@@ -38,7 +41,7 @@ def create_telegram_bot(message_queue, token, config, authorized_user_id=None):
         if _authorized_user_id is None:
             _authorized_user_id = user_id
             # Save to config
-            config.config['telegram']['authorized_user_id'] = user_id
+            config.config["telegram"]["authorized_user_id"] = user_id
             config.save()
             print(f"Authorized first Telegram user with ID: {user_id}")
             return True
@@ -50,13 +53,13 @@ def create_telegram_bot(message_queue, token, config, authorized_user_id=None):
         # Unauthorized user
         bot.send_message(
             user_id,
-            "Sorry, you are not authorized to use this bot."
+            "Sorry, you are not authorized to use this bot.",
         )
         print(f"Rejected unauthorized Telegram user with ID: {user_id}")
         return False
     
     # Handle '/start' and '/help' commands
-    @bot.message_handler(commands=['start', 'help'])
+    @bot.message_handler(commands=["start", "help"])
     def send_welcome(message):
         # Check authorization
         if not is_authorized(message.from_user.id):
@@ -64,11 +67,11 @@ def create_telegram_bot(message_queue, token, config, authorized_user_id=None):
         
         bot.reply_to(
             message,
-            "Hello! I'm SmolAssistant. You can chat with me directly."
+            "Hello! I'm SmolAssistant. You can chat with me directly.",
         )
     
     # Handle all other messages
-    @bot.message_handler(func=lambda message: True)
+    @bot.message_handler(func=lambda _: True)
     def handle_message(message):
         # Check authorization
         if not is_authorized(message.from_user.id):
@@ -89,8 +92,10 @@ def create_telegram_bot(message_queue, token, config, authorized_user_id=None):
         nonlocal _authorized_user_id
         if _authorized_user_id:
             try:
-                bot.send_message(_authorized_user_id, response)
-                print(f"Sent response to Telegram user: {response[:50]}...")
+                # Sanitize the HTML before sending to Telegram
+                sanitized_response = sanitize_telegram_html(response)
+                bot.send_message(_authorized_user_id, sanitized_response)
+                print(f"Sent response to Telegram user: {sanitized_response[:50]}")
             except Exception as e:
                 print(f"Error sending message to Telegram: {str(e)}")
     
