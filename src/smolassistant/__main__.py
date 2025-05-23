@@ -5,7 +5,7 @@ from datetime import datetime
 from nicegui import run, ui
 from openinference.instrumentation.smolagents import SmolagentsInstrumentor
 from phoenix.otel import register
-from smolagents import CodeAgent, DuckDuckGoSearchTool, LiteLLMModel
+from smolagents import CodeAgent, DuckDuckGoSearchTool, LiteLLMRouterModel
 
 # Removed unused imports since we're not displaying memory steps for now
 from .config import ConfigManager, config_dir
@@ -288,9 +288,33 @@ def main(config: ConfigManager):
         SmolagentsInstrumentor().instrument()
     
     # Create the agent
-    model = LiteLLMModel(
-        model_id=config.config["model"],
-        api_key=config.config["api_key"],
+    # Check if API key is loaded
+    api_key = config.config.get("api_key", "")
+    if not api_key:
+        raise ValueError("No API key found in config. Please check your config.toml file.")
+    
+    # Set environment variable for LiteLLM
+    os.environ["ANTHROPIC_API_KEY"] = api_key
+    
+    # Configure model list for router
+    model_list = [{
+        "model_name": "primary-model",  # Internal router name
+        "litellm_params": {
+            "model": config.config["model"],
+            # API key will be read from environment variable
+        }
+    }]
+
+    # Configure retry settings (using correct parameter names)
+    client_kwargs = {
+        "num_retries": config.config.get("retry", {}).get("llm_retries", 3),
+        "timeout": config.config.get("retry", {}).get("llm_timeout", 30)
+    }
+
+    model = LiteLLMRouterModel(
+        model_id="primary-model",
+        model_list=model_list,
+        client_kwargs=client_kwargs
     )
 
     # Create a closure for summarize_text using the process_text_tool

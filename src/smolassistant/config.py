@@ -68,6 +68,11 @@ DEFAULTS = {
     "telemetry": {
         "enabled": True,
     },
+    "retry": {
+        "llm_retries": 3,           # Number of retry attempts
+        "llm_retry_after": 5,       # Minimum seconds between retries  
+        "llm_timeout": 60,          # Request timeout in seconds
+    },
 }
 
 

@@ -40,7 +40,9 @@ def process_text_tool(config):
             response = completion(
                 model=model_name,
                 messages=messages,
-                api_key=config.config['api_key']
+                api_key=config.config['api_key'],
+                num_retries=config.config.get("retry", {}).get("llm_retries", 3),
+                timeout=config.config.get("retry", {}).get("llm_timeout", 60)
             )
             
             # Extract the response content
