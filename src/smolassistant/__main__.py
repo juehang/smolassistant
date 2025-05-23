@@ -36,15 +36,15 @@ from .tools.telegram import create_telegram_bot, run_telegram_bot
 def format_message_for_ui(message):
     """
     Format a message for UI display by converting newlines to <br> tags.
-    
+
     Args:
         message: The message to format
-        
+
     Returns:
         Formatted message with newlines converted to <br> tags
     """
     # Replace newlines with <br> tags, but preserve existing HTML
-    return message.replace('\n', '<br>')
+    return message.replace("\n", "<br>")
 
 
 def get_current_time():
@@ -76,26 +76,40 @@ async def process_message(
     # Custom styled user message
     with container:
         with ui.element("div").classes("flex justify-end q-mb-md"):
-            with ui.card().props('flat bordered').classes("q-pa-sm bg-primary-2"):
-                ui.label("You").classes("text-subtitle2 text-weight-medium text-primary")
+            with (
+                ui.card()
+                .props("flat bordered")
+                .classes("q-pa-sm bg-primary-2")
+            ):
+                ui.label("You").classes(
+                    "text-subtitle2 text-weight-medium text-primary"
+                )
                 ui.label(message).classes("text-body1")
-                ui.label(get_current_time()).classes("text-caption text-weight-light text-grey-6 text-right")
-    
+                ui.label(get_current_time()).classes(
+                    "text-caption text-weight-light text-grey-6 text-right"
+                )
+
     # Process the message
     response = await run.io_bound(
-        agent.run, message + "\n" + additional_instructions, reset=True,
+        agent.run,
+        message + "\n" + additional_instructions,
+        reset=True,
     )
-    
+
     # Format the response for UI display (convert newlines to <br>)
     ui_response = format_message_for_ui(response)
-    
+
     # Custom styled assistant message
     with container:
         with ui.element("div").classes("flex justify-start q-mb-md"):
-            with ui.card().props('flat bordered').classes("q-pa-sm bg-dark"):
-                ui.label("Assistant").classes("text-subtitle2 text-weight-medium text-secondary")
+            with ui.card().props("flat bordered").classes("q-pa-sm bg-dark"):
+                ui.label("Assistant").classes(
+                    "text-subtitle2 text-weight-medium text-secondary"
+                )
                 ui.html(ui_response).classes("text-body1")
-                ui.label(get_current_time()).classes("text-caption text-weight-light text-grey-6 text-right")
+                ui.label(get_current_time()).classes(
+                    "text-caption text-weight-light text-grey-6 text-right"
+                )
 
     # Add assistant response to history (original format)
     message_history.add_message("assistant", response)
@@ -164,7 +178,7 @@ async def send_message(
     """
     # Store message value and clear input field immediately
     msg_value = message.strip()
-    
+
     # Only process if there's actual content
     if msg_value:
         message_queue.put(msg_value)
@@ -215,7 +229,9 @@ async def setup_specific_gmail_auth(account_info):
 
     # Use run.io_bound to prevent blocking the UI
     result = await run.io_bound(
-        initialize_google_auth, account_name, token_path,
+        initialize_google_auth,
+        account_name,
+        token_path,
     )
     # Display result to user
     ui.notify(
@@ -229,9 +245,13 @@ async def add_new_gmail_account():
     """Add a new Google account to the configuration."""
     # Create a dialog to get account details
     with ui.dialog() as dialog, ui.card():
-        ui.label("Add New Google Account").classes("text-h5 text-weight-medium text-primary q-mb-md")
-        ui.label("Enter account details").classes("text-body2 text-weight-regular q-mb-md")
-        name_input = ui.input("Account Name").props('outlined filled')
+        ui.label("Add New Google Account").classes(
+            "text-h5 text-weight-medium text-primary q-mb-md"
+        )
+        ui.label("Enter account details").classes(
+            "text-body2 text-weight-regular q-mb-md"
+        )
+        name_input = ui.input("Account Name").props("outlined filled")
 
         async def submit():
             name = name_input.value
@@ -245,13 +265,17 @@ async def add_new_gmail_account():
             ui.notify(
                 result,
                 position="top",
-                color="positive" if "successful" in result.lower() else "negative",
+                color="positive"
+                if "successful" in result.lower()
+                else "negative",
             )
             dialog.close()
 
         with ui.row().classes("justify-end q-mt-md"):
             ui.button("Cancel", on_click=dialog.close).classes("text-button")
-            ui.button("Add", on_click=submit).props('color=positive').classes("text-button")
+            ui.button("Add", on_click=submit).props("color=positive").classes(
+                "text-button"
+            )
 
     dialog.open()
 
@@ -268,7 +292,8 @@ def main(config: ConfigManager):
 
     # Get the database path from config
     db_path = config.config.get("reminders", {}).get(
-        "db_path", "reminders.sqlite",
+        "db_path",
+        "reminders.sqlite",
     )
 
     # If the path is not absolute, make it relative to the config directory
@@ -281,40 +306,47 @@ def main(config: ConfigManager):
         reminder_queue=message_queue,
     )
     reminder_service.start()
-    
+
     # Initialize telemetry if enabled
     if config.config.get("telemetry", {}).get("enabled", True):
         register()
         SmolagentsInstrumentor().instrument()
-    
+
     # Create the agent
     # Check if API key is loaded
     api_key = config.config.get("api_key", "")
     if not api_key:
-        raise ValueError("No API key found in config. Please check your config.toml file.")
-    
+        raise ValueError(
+            "No API key found in config. Please check your config.toml file."
+        )
+
     # Set environment variable for LiteLLM
     os.environ["ANTHROPIC_API_KEY"] = api_key
-    
+
     # Configure model list for router
-    model_list = [{
-        "model_name": "primary-model",  # Internal router name
-        "litellm_params": {
-            "model": config.config["model"],
-            # API key will be read from environment variable
-        }
-    }]
+    model_list = [
+        {
+            "model_name": "primary-model",  # Internal router name
+            "litellm_params": {
+                "model": config.config["model"],
+                # API key will be read from environment variable
+            },
+        },
+    ]
 
     # Configure retry settings (using correct parameter names)
     client_kwargs = {
         "num_retries": config.config.get("retry", {}).get("llm_retries", 3),
-        "timeout": config.config.get("retry", {}).get("llm_timeout", 30)
+        "retry_after": config.config.get("retry", {}).get(
+            "llm_retry_after", 5
+        ),
+        "timeout": config.config.get("retry", {}).get("llm_timeout", 30),
     }
 
     model = LiteLLMRouterModel(
         model_id="primary-model",
         model_list=model_list,
-        client_kwargs=client_kwargs
+        client_kwargs=client_kwargs,
     )
 
     # Create a closure for summarize_text using the process_text_tool
@@ -352,12 +384,12 @@ def main(config: ConfigManager):
     # Add additional system prompt text if provided in config
     if config.config.get("additional_system_prompt"):
         # Process the template to replace placeholders with actual values
-        processed_prompt = config.process_template(config.config["additional_system_prompt"])
-        
+        processed_prompt = config.process_template(
+            config.config["additional_system_prompt"]
+        )
+
         agent.prompt_templates["system_prompt"] = (
-            agent.prompt_templates["system_prompt"]
-            + "\n"
-            + processed_prompt
+            agent.prompt_templates["system_prompt"] + "\n" + processed_prompt
         )
 
     # Check if Telegram is enabled
@@ -410,87 +442,139 @@ def main(config: ConfigManager):
     """)
 
     # Apply standard CSS styles to ensure proper element containment
-    ui.query('.nicegui-content').classes('h-screen p-0')
-    
+    ui.query(".nicegui-content").classes("h-screen p-0")
+
     # Main layout container with fixed width sidebar and chat area
-    with ui.row().classes('w-full h-screen no-wrap p-0 m-0'):
+    with ui.row().classes("w-full h-screen no-wrap p-0 m-0"):
         # Left sidebar - fixed width with Gmail setup and future config options
-        with ui.column().classes('w-1/4 h-full').style('min-width: 300px; max-width: 300px; background-color: var(--card-dark)'):
-            with ui.card().props('flat bordered').classes("w-full h-full q-pa-md"):
-                ui.label("Google Accounts").classes("text-h5 text-weight-medium text-primary q-mb-md")
-                
+        with (
+            ui.column()
+            .classes("w-1/4 h-full")
+            .style(
+                "min-width: 300px; max-width: 300px; background-color: var(--card-dark)"
+            )
+        ):
+            with (
+                ui.card()
+                .props("flat bordered")
+                .classes("w-full h-full q-pa-md")
+            ):
+                ui.label("Google Accounts").classes(
+                    "text-h5 text-weight-medium text-primary q-mb-md"
+                )
+
                 # Setup All button with Quasar styling
                 ui.button(
-                    "Setup All Google Accounts", 
-                    on_click=setup_gmail_auth
-                ).props('color=primary full-width unelevated').classes("text-button q-mb-md")
-                
+                    "Setup All Google Accounts", on_click=setup_gmail_auth
+                ).props("color=primary full-width unelevated").classes(
+                    "text-button q-mb-md"
+                )
+
                 # Account selection
                 accounts = config.config.get("google", {}).get("accounts", [])
                 if not accounts:
-                    accounts = config.config.get("gmail", {}).get("accounts", [])
-                
+                    accounts = config.config.get("gmail", {}).get(
+                        "accounts", []
+                    )
+
                 account_options = {}
-                
+
                 for account in accounts:
                     name = account.get("name", "unnamed")
                     token_path = os.path.join(
-                        config_dir, account.get("token_path"),
+                        config_dir,
+                        account.get("token_path"),
                     )
                     account_options[(name, token_path)] = name
-                
+
                 if account_options:
-                    ui.label("Account Selection").classes("text-subtitle2 text-weight-medium q-mt-sm q-mb-xs")
+                    ui.label("Account Selection").classes(
+                        "text-subtitle2 text-weight-medium q-mt-sm q-mb-xs"
+                    )
                     ui.select(
                         options=account_options,
                         label="Select account to setup",
                         on_change=lambda e: setup_specific_gmail_auth(e.value),
-                    ).props('outlined filled bg-dark').classes("w-full q-mb-md")
-                
-                ui.separator().props('dark spaced')
-                
+                    ).props("outlined filled bg-dark").classes(
+                        "w-full q-mb-md"
+                    )
+
+                ui.separator().props("dark spaced")
+
                 # Add New Account button with improved styling
                 ui.button(
-                    "Add New Google Account", 
-                    on_click=add_new_gmail_account
-                ).props('color=positive full-width unelevated').classes("text-button q-mt-md")
-                
+                    "Add New Google Account", on_click=add_new_gmail_account
+                ).props("color=positive full-width unelevated").classes(
+                    "text-button q-mt-md"
+                )
+
                 # Telemetry section
-                ui.separator().props('dark spaced')
-                
+                ui.separator().props("dark spaced")
+
                 # Telemetry button
-                telemetry_button = ui.button(
-                    "Open Telemetry Dashboard", 
-                    on_click=lambda: ui.navigate.to("http://0.0.0.0:6006", new_tab=True)
-                ).props('color=secondary full-width unelevated').classes("text-button q-mb-md")
+                telemetry_button = (
+                    ui.button(
+                        "Open Telemetry Dashboard",
+                        on_click=lambda: ui.navigate.to(
+                            "http://0.0.0.0:6006", new_tab=True
+                        ),
+                    )
+                    .props("color=secondary full-width unelevated")
+                    .classes("text-button q-mb-md")
+                )
 
                 # Disable button if telemetry is not enabled
                 if not config.config.get("telemetry", {}).get("enabled", True):
-                    telemetry_button.props('disabled')
-                
+                    telemetry_button.props("disabled")
+
                 # Reserved space for future configuration UI
-                with ui.expansion("Future Configuration").classes("q-mt-xl w-full"):
-                    ui.label("Configuration Options").classes("text-subtitle1 text-weight-regular")
-                    ui.label("Space reserved for future configuration options").classes("text-body2 text-weight-light text-grey-6")
-        
+                with ui.expansion("Future Configuration").classes(
+                    "q-mt-xl w-full"
+                ):
+                    ui.label("Configuration Options").classes(
+                        "text-subtitle1 text-weight-regular"
+                    )
+                    ui.label(
+                        "Space reserved for future configuration options"
+                    ).classes("text-body2 text-weight-light text-grey-6")
+
         # Main chat area - takes remaining width
-        with ui.column().classes('w-3/4 h-full p-4'):
+        with ui.column().classes("w-3/4 h-full p-4"):
             # Container for chat messages with improved styling
-            ui.label("Chat").classes("text-h4 text-weight-regular text-primary q-mb-md")
-            
-            chat_message_container = ui.scroll_area().classes(
-                "w-full h-5/6 bg-grey-9 rounded-lg p-4 scroll-area-with-thumb"
-            ).props('dark')
-            
+            ui.label("Chat").classes(
+                "text-h4 text-weight-regular text-primary q-mb-md"
+            )
+
+            chat_message_container = (
+                ui.scroll_area()
+                .classes(
+                    "w-full h-5/6 bg-grey-9 rounded-lg p-4 scroll-area-with-thumb"
+                )
+                .props("dark")
+            )
+
             # Input area with enhanced styling
-            with ui.card().props('flat bordered').classes("w-full q-mt-md q-pa-sm"):
+            with (
+                ui.card()
+                .props("flat bordered")
+                .classes("w-full q-mt-md q-pa-sm")
+            ):
                 # ui.label("Message").classes("text-caption text-weight-regular q-mb-xs text-grey-6")
                 with ui.row().classes("w-full items-end justify-between"):
-                    input_field = ui.textarea(
-                        placeholder="Type your message...",
-                    ).props('outlined filled autogrow hide-bottom-space').classes("flex-grow text-body1")
-                    
-                    send_button = ui.button(icon="send").props('round color=primary').classes("q-ml-sm self-center")
+                    input_field = (
+                        ui.textarea(
+                            placeholder="Type your message...",
+                        )
+                        .props("outlined filled autogrow hide-bottom-space")
+                        .classes("flex-grow text-body1")
+                    )
+
+                    send_button = (
+                        ui.button(icon="send")
+                        .props("round color=primary")
+                        .classes("q-ml-sm self-center")
+                    )
+
     # Define function to handle message sending and clear the input
     async def handle_send():
         message = input_field.value
@@ -506,7 +590,9 @@ def main(config: ConfigManager):
                 chat_message_container,
                 message_history,
                 telegram_cb,
-                additional_instructions=config.config["additional_instructions"],
+                additional_instructions=config.config[
+                    "additional_instructions"
+                ],
             )
 
     # Event handler for input field and send button
